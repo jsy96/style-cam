@@ -11,3 +11,7 @@
 node_modules/
 .cache/
 dist/
+
+# Local environment secrets
+.env
+.env.*

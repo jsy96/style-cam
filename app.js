@@ -77,6 +77,16 @@
     uploadButton: document.getElementById('upload-button'),
     fileInput: document.getElementById('file-input'),
     saveButton: document.getElementById('save-button'),
+    aiServiceChip: document.getElementById('ai-service-chip'),
+    aiModeBadge: document.getElementById('ai-mode-badge'),
+    aiSummary: document.getElementById('ai-summary'),
+    aiStatus: document.getElementById('ai-status'),
+    aiFlow: document.getElementById('ai-flow'),
+    aiButton: document.getElementById('generate-button'),
+    inspirationInput: document.getElementById('inspiration-input'),
+    aiResultLayer: document.getElementById('ai-result-layer'),
+    aiResultImage: document.getElementById('ai-result-image'),
+    aiResultBadge: document.getElementById('ai-result-badge'),
     toast: document.getElementById('toast'),
     workDialog: document.getElementById('work-dialog'),
     dialogTitle: document.getElementById('dialog-title'),
@@ -89,6 +99,13 @@
 
   const sources = [];
   const works = [];
+  const aiPipeline = {
+    checking: true,
+    available: false,
+    configured: false,
+    generating: false,
+    current: null
+  };
   let toastTimer = 0;
   let styleNodes = [];
 
@@ -1011,6 +1028,174 @@
     });
   }
 
+  /* ---------------- AI image pipeline ---------------- */
+
+  function setAiService(available, configured) {
+    aiPipeline.checking = false;
+    aiPipeline.available = Boolean(available);
+    aiPipeline.configured = Boolean(configured);
+    const label = aiPipeline.configured ? 'AI READY' : '本地演示';
+    elements.aiServiceChip.textContent = label;
+    elements.aiServiceChip.classList.toggle('active', aiPipeline.configured);
+    elements.aiModeBadge.textContent = aiPipeline.configured ? '真实模型' : '本地演示';
+    elements.aiModeBadge.className = aiPipeline.configured ? 'ready' : 'demo';
+    updateAiUi();
+  }
+
+  async function detectAiService() {
+    try {
+      const response = await fetch('/api/health', { cache: 'no-store' });
+      if (!response.ok) throw new Error('AI service unavailable');
+      const payload = await response.json();
+      setAiService(Boolean(payload?.ok), Boolean(payload?.configured));
+    } catch {
+      setAiService(false, false);
+    }
+  }
+
+  function currentAiResult() {
+    const source = sources[state.sourceIndex];
+    const style = STYLES[state.styleIndex];
+    const current = aiPipeline.current;
+    if (!source || !current) return null;
+    const note = elements.inspirationInput.value.trim();
+    const valid = current.sourceId === source.id
+      && current.styleId === style.id
+      && current.strengthBucket === Math.round(state.strengthTarget * 20)
+      && current.note === note;
+    return valid ? current : null;
+  }
+
+  function clearStaleAiResult() {
+    const current = aiPipeline.current;
+    if (current?.resultIsObjectUrl) URL.revokeObjectURL(current.resultUrl);
+    aiPipeline.current = null;
+    elements.aiResultLayer.classList.remove('show');
+    elements.aiResultImage.removeAttribute('src');
+  }
+
+  function installAiResult(result) {
+    const previous = aiPipeline.current;
+    if (previous?.resultIsObjectUrl && previous.resultUrl !== result.resultUrl) {
+      URL.revokeObjectURL(previous.resultUrl);
+    }
+    aiPipeline.current = result;
+    elements.aiResultImage.src = result.resultUrl;
+    elements.aiResultBadge.textContent = result.engine === 'image-api' ? 'AI 成片' : '本地演示成片';
+    elements.aiResultLayer.classList.add('show');
+    updateAiUi();
+  }
+
+  function updateAiUi() {
+    const style = STYLES[state.styleIndex];
+    const strength = Math.round(state.strengthTarget * 100);
+    elements.aiSummary.textContent = `${style.name} · 强度 ${strength}% · ${aiPipeline.configured ? '真实 AI 模型' : '本地演示模式'}`;
+    elements.aiFlow.dataset.state = aiPipeline.generating ? 'generating' : currentAiResult() ? 'finished' : 'ready';
+    elements.aiButton.disabled = aiPipeline.generating || aiPipeline.checking || !sources.length;
+    elements.aiButton.textContent = aiPipeline.generating ? '生成中…' : '生成 AI 成片';
+
+    if (!currentAiResult() && (aiPipeline.current || elements.aiResultLayer.classList.contains('show'))) clearStaleAiResult();
+    if (aiPipeline.generating) {
+      elements.aiStatus.textContent = '任务已冻结：素材、风格、强度与补充灵感保持一致';
+      elements.aiStatus.className = 'ai-status';
+    } else if (!sources.length) {
+      elements.aiStatus.textContent = '请先导入一张肖像';
+      elements.aiStatus.className = 'ai-status';
+    } else if (currentAiResult()) {
+      const result = currentAiResult();
+      const engineText = result.engine === 'image-api' ? `AI 模型 ${result.model || ''}`.trim() : '当前 WebGL 效果';
+      elements.aiStatus.textContent = `已出片 · ${engineText} · 可保存到下方`;
+      elements.aiStatus.className = 'ai-status success';
+    } else if (elements.aiStatus.className !== 'ai-status error') {
+      elements.aiStatus.textContent = aiPipeline.configured ? '等待真实 AI 出片' : '未配置 API Key，将生成明确标注的本地演示成片';
+      elements.aiStatus.className = 'ai-status';
+    }
+  }
+
+  async function generateAiPrint() {
+    if (aiPipeline.generating) return;
+    const source = sources[state.sourceIndex];
+    if (!source) {
+      showTap('请先导入一张肖像');
+      return;
+    }
+
+    const style = STYLES[state.styleIndex];
+    const note = elements.inspirationInput.value.trim();
+    // Freeze all generation inputs before any asynchronous work starts.
+    const ticket = {
+      sourceId: source.id,
+      styleId: style.id,
+      strengthBucket: Math.round(state.strengthTarget * 20),
+      strength: Math.round(state.strengthTarget * 100),
+      note
+    };
+
+    aiPipeline.generating = true;
+    updateAiUi();
+    showTap(`正在生成：${style.name}`);
+
+    try {
+      if (!aiPipeline.available || !aiPipeline.configured) {
+        // No server or no API key: keep the complete product loop testable,
+        // but clearly label this as a local demo rather than an AI result.
+        await new Promise(resolve => setTimeout(resolve, 520));
+        // Canvas has just been rendered by canvasToUrl(); keep this demo as a
+        // self-contained data URL so it remains valid even after work pruning.
+        const resultUrl = elements.canvas.toDataURL('image/png');
+        installAiResult({
+          ...ticket,
+          resultUrl,
+          resultIsObjectUrl: false,
+          engine: 'local-preview',
+          model: 'WebGL classic filters',
+          createdAt: new Date()
+        });
+        showTap('本地演示成片已生成');
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 180000);
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageDataUrl: source.dataUrl,
+          styleId: ticket.styleId,
+          strength: state.strengthTarget,
+          note
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.dataUrl) {
+        throw new Error(payload?.error || `生成失败 (${response.status})`);
+      }
+      installAiResult({
+        ...ticket,
+        resultUrl: payload.dataUrl,
+        resultIsObjectUrl: false,
+        engine: 'image-api',
+        model: payload.model || 'image-api',
+        prompt: payload.prompt || '',
+        createdAt: new Date()
+      });
+      showTap('AI 成片已生成');
+    } catch (error) {
+      console.error(error);
+      elements.aiStatus.textContent = error.name === 'AbortError'
+        ? '生成超时；为避免重复消耗，不会自动重试'
+        : `生成失败：${error.message || '未知错误'}；不会自动重试`;
+      elements.aiStatus.className = 'ai-status error';
+      showTap('AI 生成失败，不会自动重试');
+    } finally {
+      aiPipeline.generating = false;
+      updateAiUi();
+    }
+  }
+
   /* ---------------- Works ---------------- */
 
   function updateCounts() {
@@ -1050,7 +1235,8 @@
       return;
     }
     const source = sources[state.sourceIndex];
-    const resultUrl = await canvasToUrl();
+    const aiResult = currentAiResult();
+    const resultUrl = aiResult?.resultUrl || await canvasToUrl();
     const style = STYLES[state.styleIndex];
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const work = {
@@ -1062,12 +1248,17 @@
       strength: Math.round(state.strength * 100),
       radius: Math.round(state.radius * 100),
       maskSide: state.maskSide,
+      engine: aiResult?.engine || 'local-preview',
+      model: aiResult?.model || 'WebGL classic filters',
+      inspiration: aiResult?.note || '',
+      generatedAt: aiResult?.createdAt || null,
+      resultIsObjectUrl: aiResult ? Boolean(aiResult.resultIsObjectUrl) : true,
       createdAt: new Date()
     };
     works.push(work);
     if (works.length > MAX_WORKS) {
       const removed = works.shift();
-      URL.revokeObjectURL(removed.resultUrl);
+      if (removed.resultIsObjectUrl) URL.revokeObjectURL(removed.resultUrl);
     }
 
     const element = document.createElement('button');
@@ -1075,8 +1266,8 @@
     element.className = 'work-card';
     element.style.setProperty('--tilt', `${(Math.random() - 0.5) * 8}deg`);
     element.innerHTML = `
-      <img alt="${style.name}效果">
-      <span class="work-meta"><strong>${style.name}</strong><span>${Math.round(state.strength * 100)}%</span></span>
+      <img alt="${style.name}成片">
+      <span class="work-meta"><strong>${style.name}</strong><span>${aiResult?.engine === 'image-api' ? 'AI' : '本地'} · ${Math.round(state.strength * 100)}%</span></span>
     `;
     element.querySelector('img').src = resultUrl;
     element.addEventListener('click', () => openWorkDialog(work));
@@ -1094,7 +1285,7 @@
     if (index >= 0) state.workBrowseIndex = index;
     const position = state.workBrowseIndex + 1;
     elements.dialogTitle.textContent = work.style.name;
-    elements.dialogMeta.textContent = `${position} / ${works.length} · ${work.style.tagline} · 强度 ${work.strength}%`;
+    elements.dialogMeta.textContent = `${position} / ${works.length} · ${work.style.tagline} · 强度 ${work.strength}% · ${work.engine === 'image-api' ? `AI(${work.model})` : '本地滤镜'}`;
     elements.dialogOriginal.src = work.sourceUrl;
     elements.dialogResult.src = work.resultUrl;
     elements.dialogDownload.href = work.resultUrl;
@@ -1199,6 +1390,7 @@
     const sideText = zero ? '圆圈外 · 全图' : fullCover ? '圆圈内 · 全图' : `${state.maskSide === 'inside' ? '圆圈内' : '圆圈外'} · ${Math.round(state.radius * 100)}%`;
     elements.maskStatus.textContent = sideText;
     elements.strengthStatus.textContent = `强度 ${Math.round(state.strength * 100)}%`;
+    updateAiUi();
   }
 
   function updateMaskRing() {
@@ -1318,6 +1510,8 @@
       elements.fileInput.value = '';
     });
     elements.saveButton.addEventListener('click', () => void saveWork());
+    elements.aiButton.addEventListener('click', () => void generateAiPrint());
+    elements.inspirationInput.addEventListener('input', updateAiUi);
     elements.dialogClose.addEventListener('click', () => elements.workDialog.close());
 
     window.addEventListener('dragover', event => event.preventDefault());
@@ -1433,6 +1627,7 @@
     installDialDrag();
     setMode('radius');
     updateCounts();
+    void detectAiService();
 
     const samples = makeSamplePortraits();
     // Decode generated samples before addSource() uploads them; otherwise the

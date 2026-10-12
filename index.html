@@ -21,6 +21,7 @@
       </div>
       <div class="status-group">
         <span class="chip active">LOCAL LIVE</span>
+        <span class="chip" id="ai-service-chip">AI 检测中</span>
         <span class="chip" id="source-count">0 张素材</span>
         <span class="chip" id="work-count">0 张作品</span>
       </div>
@@ -69,6 +70,10 @@
                 </figure>
                 <figure class="stage-pane effect-pane">
                   <canvas id="stage" width="1000" height="1000"></canvas>
+                  <div class="ai-result-layer" id="ai-result-layer" aria-live="polite">
+                    <img id="ai-result-image" alt="AI 风格成片">
+                    <span id="ai-result-badge">AI 成片</span>
+                  </div>
                   <div class="mask-ring" id="mask-ring"></div>
                   <div class="stage-glass"></div>
                   <figcaption>效果</figcaption>
@@ -126,8 +131,31 @@
             <span>按 6 后滚轮切换作品</span>
           </div>
 
-          <button id="save-button" class="primary-button" type="button">保存到下方工作台</button>
+          <button id="save-button" class="primary-button" type="button">保存当前成片到下方</button>
         </aside>
+
+        <section class="ai-panel" aria-label="AI 出片">
+          <header>
+            <div>
+              <strong>AI IMAGE PIPELINE</strong>
+              <small>完整场景 · 材质 · 光影重构</small>
+            </div>
+            <span id="ai-mode-badge">检测中</span>
+          </header>
+          <label class="ai-field">
+            <span>补充灵感</span>
+            <textarea id="inspiration-input" rows="3" placeholder="例如：黄昏旅行桌、柔和窗光、保留人物身份和表情"></textarea>
+          </label>
+          <div class="ai-summary" id="ai-summary">毛线旅行家 · 强度 82%</div>
+          <div class="ai-flow" id="ai-flow" data-state="ready" aria-label="生成流程">
+            <span data-step="freeze"><strong>01</strong>素材与参数冻结</span>
+            <span data-step="prompt"><strong>02</strong>风格提示词组装</span>
+            <span data-step="model"><strong>03</strong>图像模型生成</span>
+            <span data-step="print"><strong>04</strong>出片 · 对比 · 保存</span>
+          </div>
+          <button id="generate-button" class="ai-button" type="button">生成 AI 成片</button>
+          <div class="ai-status" id="ai-status">等待出片</div>
+        </section>
       </section>
 
       <section class="deck works-deck" aria-label="满意照片区">

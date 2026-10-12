@@ -1,0 +1,13 @@
+{
+  "name": "style-cam",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "StyleCam Atelier portrait style workbench with local WebGL preview and an AI image pipeline",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
