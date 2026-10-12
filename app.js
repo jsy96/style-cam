@@ -1796,6 +1796,7 @@
 
   function setView(view) {
     state.view = view;
+    elements.stageStack.dataset.view = view;
     elements.stageStack.classList.toggle('comparing', view === 'compare');
     elements.stageStack.closest('.machine-panel')?.classList.toggle('comparing', view === 'compare');
   }
