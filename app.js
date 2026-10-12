@@ -16,10 +16,19 @@
 
   const MODES = [
     { id: 'strength', name: '强度大小' },
-    { id: 'style', name: '风格大小' },
+    { id: 'style', name: '风格切换' },
     { id: 'radius', name: '圆圈大小' },
+    { id: 'view', name: '原图 / 效果' },
     { id: 'works', name: '查看作品' }
   ];
+
+  const DEFAULT_PORTRAITS = Array.from({ length: 10 }, (_, index) => {
+    const number = String(index + 1).padStart(2, '0');
+    return {
+      url: `./assets/portraits/${number}.png`,
+      name: `默认肖像 ${number}.png`
+    };
+  });
 
   const MAX_RADIUS = 1.50;
   const FULL_COVER_RADIUS = 1.42;
@@ -922,96 +931,11 @@
     if (added) showTap(`已导入 ${added} 张照片`);
   }
 
-  function makeSamplePortraits() {
-    const palettes = [
-      { bg: ['#d9b28a', '#73594a'], cloth: '#6f7f68', hair: '#28211c' },
-      { bg: ['#a7b8d8', '#3c4863'], cloth: '#c2855e', hair: '#191a1e' },
-      { bg: ['#c7c1dc', '#635a7a'], cloth: '#3f5d63', hair: '#402c23' },
-      { bg: ['#d7c6a3', '#6d5e45'], cloth: '#886b94', hair: '#211d18' }
-    ];
-    return palettes.map((palette, index) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 800;
-      canvas.height = 1000;
-      const ctx = canvas.getContext('2d');
-      const bg = ctx.createLinearGradient(0, 0, 800, 1000);
-      bg.addColorStop(0, palette.bg[0]);
-      bg.addColorStop(1, palette.bg[1]);
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, 800, 1000);
-
-      for (let i = 0; i < 90; i += 1) {
-        ctx.fillStyle = `rgba(255,255,255,${0.015 + Math.random() * 0.035})`;
-        ctx.beginPath();
-        ctx.arc(Math.random() * 800, Math.random() * 1000, Math.random() * 42 + 5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // shoulders
-      ctx.fillStyle = palette.cloth;
-      ctx.beginPath();
-      ctx.ellipse(400, 920, 330, 220, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // neck and face
-      ctx.fillStyle = '#c68e69';
-      ctx.fillRect(350, 520, 100, 170);
-      const face = ctx.createRadialGradient(330, 350, 45, 400, 410, 270);
-      face.addColorStop(0, '#efc3a2');
-      face.addColorStop(1, '#a06c50');
-      ctx.fillStyle = face;
-      ctx.beginPath();
-      ctx.ellipse(400, 390, 185, 225, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // hair
-      ctx.fillStyle = palette.hair;
-      ctx.beginPath();
-      ctx.moveTo(205, 375);
-      ctx.quadraticCurveTo(230, 115, 420, 125);
-      ctx.quadraticCurveTo(615, 135, 600, 390);
-      ctx.quadraticCurveTo(535, 240, 400, 230);
-      ctx.quadraticCurveTo(270, 245, 205, 375);
-      ctx.closePath();
-      ctx.fill();
-
-      // eyes and brows
-      ctx.fillStyle = '#251d19';
-      ctx.beginPath();
-      ctx.ellipse(333, 385, 25, index % 2 ? 13 : 17, 0, 0, Math.PI * 2);
-      ctx.ellipse(467, 385, 25, index % 2 ? 13 : 17, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.lineWidth = 10;
-      ctx.strokeStyle = palette.hair;
-      ctx.beginPath();
-      ctx.moveTo(294, 332); ctx.lineTo(364, 321);
-      ctx.moveTo(436, 321); ctx.lineTo(506, 332);
-      ctx.stroke();
-
-      // nose and mouth
-      ctx.strokeStyle = 'rgba(90,52,38,.65)';
-      ctx.lineWidth = 8;
-      ctx.beginPath();
-      ctx.moveTo(400, 410); ctx.lineTo(383, 478);
-      ctx.stroke();
-      ctx.fillStyle = '#a94f44';
-      ctx.beginPath();
-      ctx.ellipse(400, 528, 54, 24, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // lighting
-      const light = ctx.createLinearGradient(120, 0, 720, 1000);
-      light.addColorStop(0, 'rgba(255,242,226,.23)');
-      light.addColorStop(0.55, 'rgba(0,0,0,0)');
-      light.addColorStop(1, 'rgba(0,0,0,.28)');
-      ctx.fillStyle = light;
-      ctx.fillRect(0, 0, 800, 1000);
-
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.90);
-      const image = new Image();
-      image.src = dataUrl;
-      return { image, dataUrl, name: `示例肖像 ${index + 1}.jpg` };
-    });
+  async function loadDefaultPortraits() {
+    return Promise.all(DEFAULT_PORTRAITS.map(async portrait => {
+      const image = await loadImageFromUrl(portrait.url);
+      return { image, dataUrl: portrait.url, name: portrait.name };
+    }));
   }
 
   /* ---------------- AI image pipeline ---------------- */
@@ -1234,7 +1158,7 @@
         browseWorks(delta);
         break;
       default:
-        changeStyle(delta);
+        setView(state.view === 'original' ? 'effect' : 'original');
         break;
     }
     updateUi();
@@ -1272,7 +1196,8 @@
     clearStaleAiResult();
     state.strengthTarget = 0;
     state.strength = 0;
-    setView('effect');
+    setView('original');
+    setMode('view');
     updateUi();
     showTap('效果图已重置为原图');
   }
@@ -1288,16 +1213,22 @@
         break;
       case 'compare':
         setView(state.view === 'compare' ? 'effect' : 'compare');
+        setMode('view');
         if (elements.workDialog.open) flashComparison();
         break;
       case 'save':
         if (elements.workDialog.open && dialogContext.work && !dialogContext.saved) {
-          void saveWork({ work: dialogContext.work });
+          void saveWork({ work: dialogContext.work }).then(work => {
+            if (work) setMode('view');
+          });
         } else {
-          void saveWork();
+          void saveWork().then(work => {
+            if (work) setMode('view');
+          });
         }
         break;
       case 'works':
+        // S4 keeps its dedicated behavior: close an open preview or browse works.
         if (elements.workDialog.open) {
           elements.workDialog.close();
           setCreativeDisplay(false);
@@ -1312,6 +1243,7 @@
         break;
       case 'original':
         setView(state.view === 'original' ? 'effect' : 'original');
+        setMode('view');
         break;
       case 'style':
         setCreativeDisplay(false);
@@ -1790,7 +1722,11 @@
         break;
       case 'works':
         browseWorks(delta);
-        break;    }
+        break;
+      default:
+        setView(state.view === 'original' ? 'effect' : 'original');
+        break;
+    }
     updateUi();
   }
 
@@ -1809,6 +1745,10 @@
       case 'strength': return `${Math.round(state.strengthTarget * 100)}%`;
       case 'source': return sources.length ? `${state.sourceIndex + 1} / ${sources.length}` : '未导入';
       case 'works': return works.length ? `${state.workBrowseIndex + 1} / ${works.length}` : '未保存';
+      case 'view':
+        if (state.view === 'original') return '原图';
+        if (state.view === 'compare') return '对比';
+        return '效果图';
       default: return '';
     }
   }
@@ -2087,18 +2027,14 @@
     updateCounts();
     void detectAiService();
 
-    const samples = makeSamplePortraits();
-    // Decode generated samples before addSource() uploads them; otherwise the
-    // first WebGL selection can receive an unfinished HTMLImageElement.
-    await Promise.all(samples.map(async sample => {
-      await sample.image.decode?.().catch(() => {});
-      return sample;
-    }));
+    // Static portraits still pass through the same decode boundary before WebGL
+    // upload, preventing INVALID_VALUE from incompletely decoded textures.
+    const samples = await loadDefaultPortraits();
     samples.forEach(sample => addSource(sample));
     selectSource(0);
     updateUi();
     requestAnimationFrame(frame);
-    showTap('已载入示例肖像，可拖入照片替换');
+    showTap('已载入 10 张默认肖像，可拖入照片替换');
   }
 
   void init();

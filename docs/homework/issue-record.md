@@ -14,7 +14,7 @@ WebGL: INVALID_VALUE: texImage2D: no image
 
 检查 `app.js` 初始化流程发现：
 
-1. `makeSamplePortraits()` 创建 HTML `Image`；
+1. `loadDefaultPortraits()` 读取静态默认肖像并等待 HTML `Image` 载入；
 2. `addSource()` 被立即调用；
 3. `renderer.setImage()` 随即把图片对象上传给 WebGL；
 4. 图片实际解码在之后才完成。
@@ -26,7 +26,7 @@ WebGL: INVALID_VALUE: texImage2D: no image
 调整初始化顺序为：
 
 ```text
-创建示例图片
+读取默认肖像图片
   ↓
 等待 image.decode()
   ↓
