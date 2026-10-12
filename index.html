@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StyleCam Atelier · 肖像风格工作台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2714%27 fill=%27%23181920%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%277%27 fill=%27none%27 stroke=%27%23d99b68%27 stroke-width=%273%27/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">
+          <span></span><span></span><span></span>
+        </div>
+        <div>
+          <strong>StyleCam Atelier</strong>
+          <small>Portrait Style Workbench</small>
+        </div>
+      </div>
+      <div class="status-group">
+        <span class="chip active">LOCAL LIVE</span>
+        <span class="chip" id="source-count">0 张素材</span>
+        <span class="chip" id="work-count">0 张作品</span>
+      </div>
+    </header>
+
+    <main class="studio-shell">
+      <section class="deck source-deck" aria-label="原始照片区">
+        <div class="deck-head">
+          <div>
+            <strong>原始照片</strong>
+            <small>拖入肖像 · 点击选择 · 可自然拖放</small>
+          </div>
+          <div class="deck-actions">
+            <button id="upload-button" class="quiet-button" type="button">导入照片</button>
+          </div>
+        </div>
+        <div id="source-surface" class="source-surface">
+          <div class="source-empty">
+            <span>Drop Portraits</span>
+            <small>可一次导入多张 JPEG / PNG / WebP</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="middle-layout" aria-label="处理工作台">
+        <div class="machine-panel">
+          <div class="machine-topline">
+            <div class="machine-label">
+              <strong>PROCESS TURNTABLE</strong>
+              <small>十组风格 · 实时旋调</small>
+            </div>
+            <div class="view-switch" role="group" aria-label="显示模式">
+              <button class="view-button active" data-view="effect" type="button">效果</button>
+              <button class="view-button" data-view="compare" type="button">对比</button>
+              <button class="view-button" data-view="original" type="button">原图</button>
+            </div>
+          </div>
+
+          <div class="style-wheel">
+            <div class="wheel-rotor" id="style-rotor"></div>
+            <div class="wheel-hub">
+              <div class="stage-stack" id="stage-stack">
+                <figure class="stage-pane original-pane">
+                  <img id="original-preview" alt="原始照片">
+                  <figcaption>原图</figcaption>
+                </figure>
+                <figure class="stage-pane effect-pane">
+                  <canvas id="stage" width="1000" height="1000"></canvas>
+                  <div class="mask-ring" id="mask-ring"></div>
+                  <div class="stage-glass"></div>
+                  <figcaption>效果</figcaption>
+                </figure>
+              </div>
+            </div>
+          </div>
+
+          <div class="stage-caption">
+            <div>
+              <strong id="style-name">毛线旅行家</strong>
+              <small id="style-tagline">把熟悉的人与物，织成掌心里的温柔。</small>
+            </div>
+            <div class="caption-metrics">
+              <span id="mask-status">圆圈内 · 42%</span>
+              <span id="strength-status">强度 82%</span>
+            </div>
+          </div>
+
+        </div>
+
+        <aside class="control-panel" aria-label="旋钮控制">
+          <div class="panel-title">
+            <strong>CONTROL</strong>
+            <small>数字键选择 · 滚轮调节</small>
+          </div>
+
+
+          <div class="dial-module">
+            <div class="dial-scale" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span>
+            </div>
+            <button id="dial" class="dial" type="button" aria-label="旋钮">
+              <span class="dial-face"><span class="dial-marker"></span></span>
+            </button>
+            <div class="dial-readout">
+              <strong id="mode-name">圆圈大小</strong>
+              <span id="mode-value">42%</span>
+            </div>
+          </div>
+          <div class="function-grid" id="function-grid">
+            <button class="function-button active" data-mode="radius" type="button"><strong>1</strong><span>圆圈大小</span></button>
+            <button class="function-button" data-mode="side" type="button"><strong>2</strong><span>圈内 / 圈外</span></button>
+            <button class="function-button" data-mode="style" type="button"><strong>3</strong><span>风格类型</span></button>
+            <button class="function-button" data-mode="strength" type="button"><strong>4</strong><span>风格强度</span></button>
+            <button class="function-button" data-mode="source" type="button"><strong>5</strong><span>选择图片</span></button>
+            <button class="function-button" data-mode="works" type="button"><strong>6</strong><span>查看作品</span></button>
+          </div>
+
+          <div class="control-hints">
+            <span>滚轮 / 拖动旋钮</span>
+            <span>移动画面调整圆心</span>
+            <span>按 6 后滚轮切换作品</span>
+          </div>
+
+          <button id="save-button" class="primary-button" type="button">保存到下方工作台</button>
+        </aside>
+      </section>
+
+      <section class="deck works-deck" aria-label="满意照片区">
+        <div class="deck-head">
+          <div>
+            <strong>满意照片</strong>
+            <small>保存后自然落下 · 点击查看与下载</small>
+          </div>
+          <div class="deck-actions">
+            <span id="works-label">0 / 24</span>
+          </div>
+        </div>
+        <div id="works-surface" class="works-surface">
+          <div class="works-empty">
+            <span>Finished Prints</span>
+            <small>按 6 可循环查看已保存的原图与效果对比</small>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="work-dialog">
+    <div class="dialog-shell">
+      <header>
+        <div>
+          <strong id="dialog-title">作品</strong>
+          <small id="dialog-meta">风格详情</small>
+        </div>
+        <div class="dialog-actions">
+          <a id="dialog-download" class="quiet-button" download="stylecam-work.png">下载 PNG</a>
+          <button id="dialog-close" class="quiet-button" type="button">关闭</button>
+        </div>
+      </header>
+      <div class="dialog-compare">
+        <figure><figcaption>原图</figcaption><img id="dialog-original" alt="原图"></figure>
+        <figure><figcaption>效果</figcaption><img id="dialog-result" alt="风格效果"></figure>
+      </div>
+    </div>
+  </dialog>
+
+  <input id="file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

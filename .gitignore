@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*~
+
+# Local dependencies and caches
+node_modules/
+.cache/
+dist/

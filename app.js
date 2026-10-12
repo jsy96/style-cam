@@ -1,0 +1,1452 @@
+(() => {
+  'use strict';
+
+  const STYLES = [
+    { id: 'yarn', name: '毛线旅行家', tagline: '把熟悉的人与物，织成掌心里的温柔。' },
+    { id: 'blocks', name: '积木星球', tagline: '一块一块，搭出另一个宇宙。' },
+    { id: 'mecha', name: '机甲模型盒', tagline: '把日常，装配成未来收藏品。' },
+    { id: 'retro', name: '掌上像素梦', tagline: '把你的世界，装进一台小小掌机。' },
+    { id: 'clay', name: '软陶盲盒', tagline: '捏一份柔软的、可以收藏的想象。' },
+    { id: 'paper', name: '纸间剧场', tagline: '折叠光影，让画面站起来。' },
+    { id: 'chrome', name: '液态银诗', tagline: '让轮廓流动，让光成为颜色。' },
+    { id: 'jelly', name: '果冻宇宙', tagline: '给世界一点透明、轻盈和弹性。' },
+    { id: 'terrarium', name: '口袋生态舱', tagline: '把一个小世界，藏进玻璃球。' },
+    { id: 'risograph', name: '孔版夏日', tagline: '留住油墨颗粒里的夏天。' }
+  ];
+
+  const MODES = [
+    { id: 'radius', name: '圆圈大小' },
+    { id: 'side', name: '圈内 / 圈外' },
+    { id: 'style', name: '风格类型' },
+    { id: 'strength', name: '风格强度' },
+    { id: 'source', name: '选择图片' },
+    { id: 'works', name: '查看作品' }
+  ];
+
+  const MAX_RADIUS = 1.50;
+  const FULL_COVER_RADIUS = 1.42;
+  const MAX_SOURCES = 16;
+  const MAX_WORKS = 24;
+
+  const state = {
+    mode: 'radius',
+    maskSide: 'inside',
+    view: 'effect',
+    radiusTarget: 0.25,
+    radius: 0.25,
+    centerXTarget: 0.50,
+    centerYTarget: 0.48,
+    centerX: 0.50,
+    centerY: 0.48,
+    strengthTarget: 0.82,
+    strength: 0.82,
+    styleIndex: 0,
+    styleA: 0,
+    styleB: 0,
+    styleBlend: 0,
+    styleBlendTarget: 0,
+    styleRotation: 0,
+    styleRotationTarget: 0,
+    sourceIndex: 0,
+    dialAngle: 0,
+    dialAngleTarget: 0,
+    workBrowseIndex: 0
+  };
+
+  const elements = {
+    canvas: document.getElementById('stage'),
+    stageStack: document.getElementById('stage-stack'),
+    originalPreview: document.getElementById('original-preview'),
+    maskRing: document.getElementById('mask-ring'),
+    styleRotor: document.getElementById('style-rotor'),
+    styleName: document.getElementById('style-name'),
+    styleTagline: document.getElementById('style-tagline'),
+    maskStatus: document.getElementById('mask-status'),
+    strengthStatus: document.getElementById('strength-status'),
+    modeName: document.getElementById('mode-name'),
+    modeValue: document.getElementById('mode-value'),
+    dial: document.getElementById('dial'),
+    functionGrid: document.getElementById('function-grid'),
+    sourceSurface: document.getElementById('source-surface'),
+    sourceEmpty: document.querySelector('.source-empty'),
+    sourceCount: document.getElementById('source-count'),
+    worksSurface: document.getElementById('works-surface'),
+    worksEmpty: document.querySelector('.works-empty'),
+    workCount: document.getElementById('work-count'),
+    worksLabel: document.getElementById('works-label'),
+    uploadButton: document.getElementById('upload-button'),
+    fileInput: document.getElementById('file-input'),
+    saveButton: document.getElementById('save-button'),
+    toast: document.getElementById('toast'),
+    workDialog: document.getElementById('work-dialog'),
+    dialogTitle: document.getElementById('dialog-title'),
+    dialogMeta: document.getElementById('dialog-meta'),
+    dialogOriginal: document.getElementById('dialog-original'),
+    dialogResult: document.getElementById('dialog-result'),
+    dialogDownload: document.getElementById('dialog-download'),
+    dialogClose: document.getElementById('dialog-close')
+  };
+
+  const sources = [];
+  const works = [];
+  let toastTimer = 0;
+  let styleNodes = [];
+
+  function showTap(message) {
+    elements.toast.textContent = message;
+    elements.toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => elements.toast.classList.remove('show'), 1800);
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function modulo(index, delta, count) {
+    if (count <= 0) return 0;
+    return ((index + delta) % count + count) % count;
+  }
+
+  function shortestDelta(current, target, count) {
+    const raw = ((target - current) % count + count) % count;
+    return raw > count / 2 ? raw - count : raw;
+  }
+
+  function ease(current, target, dt, speed = 82) {
+    const next = current + (target - current) * (1 - Math.exp(-dt * 1000 / speed));
+    return Math.abs(target - next) < 0.0008 ? target : next;
+  }
+
+  /* ---------------- WebGL live renderer ---------------- */
+
+  const vertexShaderSource = `
+    attribute vec2 aPosition;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPosition * 0.5 + 0.5;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
+    }
+  `;
+
+  const fragmentShaderSource = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uTexture;
+    uniform vec2 uTexel;
+    uniform float uAspect;
+    uniform float uStyleA;
+    uniform float uStyleB;
+    uniform float uStyleMix;
+    uniform float uStrength;
+    uniform vec2 uMask;
+    uniform float uRadius;
+    uniform float uSide;
+    uniform float uView;
+    uniform float uTime;
+
+    // One set of image features is shared by every style.  This avoids running
+    // expensive classic filters twice while a style transition is blending.
+    vec3 gOriginal;
+    vec3 gSmooth;
+    vec3 gAbstract;
+    vec2 gGradient;
+    float gEdge;
+    vec3 gNormal;
+
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+    }
+
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(
+        mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+        mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+        f.y
+      );
+    }
+
+    vec3 imageAt(vec2 uv) {
+      vec2 factor = vec2(min(1.0 / uAspect, 1.0), min(uAspect, 1.0));
+      vec2 texUv = clamp(0.5 + (uv - 0.5) * factor, 0.002, 0.998);
+      return texture2D(uTexture, texUv).rgb;
+    }
+
+    float lum(vec3 color) {
+      return dot(color, vec3(0.299, 0.587, 0.114));
+    }
+
+    vec2 rotate(vec2 p, float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      return vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+    }
+
+    vec3 rgb2hsv(vec3 color) {
+      vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+      vec4 p = mix(vec4(color.bg, K.wz), vec4(color.gb, K.xy), step(color.b, color.g));
+      vec4 q = mix(vec4(p.xyw, color.r), vec4(color.r, p.yzx), step(p.x, color.r));
+      float d = q.x - min(q.w, q.y);
+      float e = 1.0e-10;
+      return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+    }
+
+    vec3 hsv2rgb(vec3 color) {
+      vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+      vec3 p = abs(fract(color.xxx + K.xyz) * 6.0 - K.www);
+      return color.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), color.y);
+    }
+
+    // A compact 3x3 bilateral filter: the classic fast local edge-preserving
+    // pre-pass.  It removes camera noise while keeping eyes, hair and contours.
+    vec3 bilateralSmooth(vec2 uv) {
+      vec3 center = imageAt(uv);
+      vec3 sum = center;
+      float weightSum = 1.0;
+      float spatial = 2.4;
+      float range = 0.20;
+
+      for (int y = -1; y <= 1; y += 1) {
+        for (int x = -1; x <= 1; x += 1) {
+          if (x == 0 && y == 0) continue;
+          vec2 offset = vec2(float(x), float(y)) * uTexel * spatial;
+          vec3 sampleColor = imageAt(uv + offset);
+          vec3 delta = sampleColor - center;
+          float spatialWeight = exp(-dot(offset, offset) / (2.0 * spatial * spatial * uTexel.x * uTexel.x));
+          float rangeWeight = exp(-dot(delta, delta) / (2.0 * range * range));
+          float weight = spatialWeight * rangeWeight;
+          sum += sampleColor * weight;
+          weightSum += weight;
+        }
+      }
+      return sum / weightSum;
+    }
+
+    // Generalized Kuwahara: four quadrants compete by variance.  It is one of
+    // the standard image-abstraction operators and creates coherent painterly
+    // regions without destroying the subject boundary.
+    vec4 kuwaharaQuadrant(vec2 uv, vec2 direction, float radius) {
+      vec2 a = direction * uTexel * radius * vec2(0.22, 0.22);
+      vec2 b = direction * uTexel * radius * vec2(1.00, 0.22);
+      vec2 c = direction * uTexel * radius * vec2(0.22, 1.00);
+      vec2 d = direction * uTexel * radius * vec2(1.00, 1.00);
+      vec2 e = direction * uTexel * radius * vec2(0.60, 0.60);
+
+      vec3 s0 = imageAt(uv + a);
+      vec3 s1 = imageAt(uv + b);
+      vec3 s2 = imageAt(uv + c);
+      vec3 s3 = imageAt(uv + d);
+      vec3 s4 = imageAt(uv + e);
+      vec3 sum = s0 + s1 + s2 + s3 + s4;
+      vec3 square = s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3 + s4 * s4;
+      vec3 mean = sum / 5.0;
+      vec3 variance = max(square / 5.0 - mean * mean, vec3(0.0));
+      return vec4(mean, dot(variance, vec3(0.3333333)));
+    }
+
+    vec3 compactKuwahara(vec2 uv, float radius) {
+      vec4 q0 = kuwaharaQuadrant(uv, vec2(-1.0, -1.0), radius);
+      vec4 q1 = kuwaharaQuadrant(uv, vec2( 1.0, -1.0), radius);
+      vec4 q2 = kuwaharaQuadrant(uv, vec2(-1.0,  1.0), radius);
+      vec4 q3 = kuwaharaQuadrant(uv, vec2( 1.0,  1.0), radius);
+
+      vec4 chosen = q0;
+      if (q1.w < chosen.w) chosen = q1;
+      if (q2.w < chosen.w) chosen = q2;
+      if (q3.w < chosen.w) chosen = q3;
+      return chosen.rgb;
+    }
+
+    void buildFeatures(vec2 uv) {
+      gOriginal = imageAt(uv);
+      gSmooth = bilateralSmooth(uv);
+      gAbstract = compactKuwahara(uv, max(4.0, min(9.0, 6.2 / max(uTexel.x, uTexel.y))));
+
+      // Classic Sobel operator on luminance.  The result is shared by ink,
+      // panel-line, normal-map, glass and metallic styles.
+      float l00 = lum(imageAt(uv + uTexel * vec2(-1.0,  1.0)));
+      float l10 = lum(imageAt(uv + uTexel * vec2( 0.0,  1.0)));
+      float l20 = lum(imageAt(uv + uTexel * vec2( 1.0,  1.0)));
+      float l01 = lum(imageAt(uv + uTexel * vec2(-1.0,  0.0)));
+      float l21 = lum(imageAt(uv + uTexel * vec2( 1.0,  0.0)));
+      float l02 = lum(imageAt(uv + uTexel * vec2(-1.0, -1.0)));
+      float l12 = lum(imageAt(uv + uTexel * vec2( 0.0, -1.0)));
+      float l22 = lum(imageAt(uv + uTexel * vec2( 1.0, -1.0)));
+
+      float gx = (l20 + 2.0 * l21 + l22) - (l00 + 2.0 * l01 + l02);
+      float gy = (l00 + 2.0 * l10 + l20) - (l02 + 2.0 * l12 + l22);
+      gGradient = vec2(gx, gy) * 0.50;
+      gEdge = clamp(length(gGradient) * 1.65, 0.0, 1.0);
+      gNormal = normalize(vec3(-gGradient.x * 1.30, -gGradient.y * 1.30, 0.18));
+    }
+
+    vec3 toneMap(vec3 color, float saturation, float contrast) {
+      float l = lum(color);
+      vec3 result = mix(vec3(l), color, saturation);
+      result = (result - 0.5) * contrast + 0.5;
+      return clamp(result, 0.0, 1.0);
+    }
+
+    vec3 quantizeColor(vec3 color, float levels) {
+      return floor(color * (levels - 1.0) + 0.5) / (levels - 1.0);
+    }
+
+    vec3 quantizeHsv(vec3 color, float hueSteps, float saturationSteps, float valueSteps) {
+      vec3 hsv = rgb2hsv(clamp(color, 0.0, 1.0));
+      hsv.x = floor(hsv.x * hueSteps + 0.5) / hueSteps;
+      hsv.y = floor(hsv.y * saturationSteps + 0.5) / saturationSteps;
+      hsv.z = floor(hsv.z * valueSteps + 0.5) / (valueSteps - 1.0);
+      return hsv2rgb(clamp(hsv, 0.0, 1.0));
+    }
+
+    vec3 luminanceRamp(float value, vec3 dark, vec3 middle, vec3 light) {
+      float v = clamp(value, 0.0, 1.0);
+      return mix(mix(dark, middle, smoothstep(0.0, 0.54, v)), light, smoothstep(0.48, 1.0, v));
+    }
+
+    vec3 luminanceRamp4(float value, vec3 c0, vec3 c1, vec3 c2, vec3 c3) {
+      float v = clamp(value, 0.0, 1.0);
+      vec3 lower = mix(c0, c1, smoothstep(0.0, 0.36, v));
+      vec3 upper = mix(c2, c3, smoothstep(0.62, 1.0, v));
+      return mix(lower, upper, smoothstep(0.28, 0.74, v));
+    }
+
+    float bayer2(vec2 p) {
+      vec2 q = mod(floor(p), 2.0);
+      return mod(q.x * 3.0 + q.y * 2.0, 4.0) / 4.0;
+    }
+
+    float bayer4(vec2 p) {
+      return bayer2(floor(p) * 0.5) * 0.25 + bayer2(floor(p));
+    }
+
+    float screenDot(vec2 uv, float angle, float frequency, float level) {
+      vec2 p = rotate(uv, angle) * frequency;
+      vec2 f = fract(p) - 0.5;
+      float radius = clamp(level, 0.0, 1.0) * 0.82;
+      return 1.0 - smoothstep(radius - 0.10, radius + 0.10, length(f) * 1.55);
+    }
+
+    vec3 yarnStyle(vec2 uv) {
+      float l = lum(gAbstract);
+      vec3 base = toneMap(gAbstract, 0.78, 1.04);
+      vec3 ramp = luminanceRamp(l,
+        vec3(0.085, 0.115, 0.205),
+        vec3(0.760, 0.275, 0.310),
+        vec3(0.985, 0.820, 0.590));
+      vec3 wool = mix(ramp, base, 0.30);
+
+      vec2 knitUv = uv / max(uTexel.x, uTexel.y);
+      float thread = sin((knitUv.x * 0.72 + knitUv.y) * 122.0 + l * 13.0) * 0.5 + 0.5;
+      float twist = sin((knitUv.x - knitUv.y * 0.45) * 71.0 + gAbstract.g * 10.0) * 0.5 + 0.5;
+      float fiber = 0.83 + thread * 0.20 + twist * 0.10;
+      wool *= fiber;
+      wool += smoothstep(0.66, 1.0, l) * vec3(0.16, 0.13, 0.09);
+      wool = mix(wool, wool * 0.55, smoothstep(0.36, 0.90, gEdge) * 0.55);
+      return clamp(wool, 0.0, 1.0);
+    }
+
+    vec3 blockStyle(vec2 uv) {
+      vec2 grid = vec2(27.0, 33.0);
+      vec2 cell = floor(uv * grid);
+      vec2 f = fract(uv * grid);
+      vec3 quantized = quantizeHsv(gAbstract, 6.0, 3.0, 4.0);
+      quantized = toneMap(quantized, 0.72, 1.05);
+      quantized = mix(vec3(lum(quantized)), quantized, 0.76);
+
+      float bevel = (0.5 - f.x) + (0.5 - f.y);
+      float diffuse = clamp(0.72 + dot(gNormal, normalize(vec3(-0.35, 0.58, 0.72))) * 0.34 + bevel * 0.08, 0.0, 1.25);
+      float specular = pow(clamp(dot(gNormal, normalize(vec3(-0.30, 0.72, 0.65))), 0.0, 1.0), 16.0);
+      vec3 plastic = quantized * diffuse + specular * vec3(0.36, 0.36, 0.34);
+
+      float distanceToEdge = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
+      float seam = smoothstep(0.435, 0.495, distanceToEdge);
+      plastic *= 1.0 - seam * 0.36;
+      plastic += hash(cell) * 0.025 - 0.012;
+      return clamp(plastic, 0.0, 1.0);
+    }
+
+    vec3 mechaStyle() {
+      float l = lum(gAbstract);
+      vec3 quantized = quantizeHsv(gAbstract, 8.0, 2.0, 5.0);
+      vec3 cool = luminanceRamp(l,
+        vec3(0.055, 0.070, 0.100),
+        vec3(0.270, 0.330, 0.420),
+        vec3(0.760, 0.810, 0.870));
+      vec3 accent = mix(quantized, vec3(0.980, 0.520, 0.210), smoothstep(0.55, 1.0, gAbstract.r - gAbstract.b) * 0.36);
+      vec3 armor = mix(cool, accent, 0.22);
+
+      float diffuse = clamp(0.60 + dot(gNormal, normalize(vec3(-0.25, 0.68, 0.70))) * 0.55, 0.0, 1.2);
+      float hardSpec = pow(clamp(dot(gNormal, normalize(vec3(-0.42, 0.74, 0.55))), 0.0, 1.0), 28.0);
+      armor *= diffuse;
+      armor += hardSpec * vec3(0.72, 0.78, 0.86);
+      armor *= 1.0 - smoothstep(0.22, 0.78, gEdge) * 0.66;
+      return clamp(armor, 0.0, 1.0);
+    }
+
+    vec3 retroStyle(vec2 uv) {
+      vec2 grid = vec2(144.0, 144.0);
+      vec2 pixel = floor(uv * grid);
+      vec2 pixelUv = (pixel + 0.5) / grid;
+      vec3 pixelColor = imageAt(pixelUv);
+      float value = lum(pixelColor);
+      float dither = (bayer4(pixel) - 0.5) * 0.24;
+      float tuned = clamp(value + dither, 0.0, 1.0);
+
+      vec3 gameboy = luminanceRamp4(tuned,
+        vec3(0.055, 0.220, 0.055),
+        vec3(0.188, 0.385, 0.188),
+        vec3(0.545, 0.675, 0.055),
+        vec3(0.608, 0.737, 0.055));
+
+      vec2 f = fract(uv * grid);
+      float cellGap = smoothstep(0.40, 0.50, max(abs(f.x - 0.5), abs(f.y - 0.5)));
+      gameboy *= 1.0 - cellGap * 0.16;
+      gameboy += smoothstep(0.20, 0.90, value) * 0.10;
+      return clamp(gameboy, 0.0, 1.0);
+    }
+
+    vec3 clayStyle() {
+      vec3 quantized = quantizeHsv(gAbstract, 6.0, 3.0, 4.0);
+      quantized = toneMap(quantized, 0.52, 0.94);
+      quantized = mix(vec3(lum(quantized)), quantized, 0.76);
+      quantized = mix(quantized, vec3(0.885, 0.755, 0.705), 0.13);
+
+      float diffuse = clamp(0.68 + dot(gNormal, normalize(vec3(-0.22, 0.72, 0.68))) * 0.38, 0.0, 1.1);
+      float matteSpec = pow(clamp(dot(gNormal, normalize(vec3(-0.18, 0.78, 0.62))), 0.0, 1.0), 10.0);
+      vec3 clay = quantized * diffuse + matteSpec * vec3(0.28, 0.25, 0.24);
+      clay = mix(clay, clay * 0.68, smoothstep(0.52, 1.0, gEdge) * 0.28);
+      return clamp(clay, 0.0, 1.0);
+    }
+
+    vec3 paperStyle(vec2 uv) {
+      vec3 paint = quantizeHsv(gSmooth, 7.0, 4.0, 5.0);
+      paint = toneMap(paint, 0.68, 0.98);
+      paint = mix(paint, vec3(0.975, 0.920, 0.820), 0.15);
+
+      float line = smoothstep(0.34, 0.86, gEdge);
+      vec3 ink = vec3(0.100, 0.095, 0.120);
+      paint = mix(paint, ink, line * 0.72);
+
+      float fold = sin((uv.x + uv.y * 0.62) * 18.0) * 0.5 + 0.5;
+      paint *= 0.95 + fold * 0.05;
+      paint += (noise(uv * 640.0) - 0.5) * 0.028;
+      return clamp(paint, 0.0, 1.0);
+    }
+
+    vec3 chromeStyle(vec2 uv) {
+      float l = lum(gAbstract);
+      vec3 reflected = normalize(vec3(gNormal.xy * 2.35, 0.58));
+      float flow = sin(reflected.x * 13.0 + reflected.y * 9.0 + l * 9.0) * 0.5 + 0.5;
+      float sheet = sin((uv.x - uv.y * 0.58) * 27.0 + l * 11.0) * 0.5 + 0.5;
+
+      vec3 silver = mix(vec3(0.340, 0.375, 0.430), vec3(0.920, 0.950, 1.000), smoothstep(0.08, 0.94, l * 0.72 + flow * 0.34));
+      vec3 iridescent = mix(vec3(0.980, 0.730, 0.460), vec3(0.430, 0.730, 1.000), sheet);
+      vec3 chrome = mix(silver, iridescent, 0.16 + flow * 0.15);
+
+      float spec = pow(clamp(dot(gNormal, normalize(vec3(-0.35, 0.78, 0.52))), 0.0, 1.0), 22.0);
+      chrome += spec * vec3(0.80, 0.86, 0.94);
+      chrome *= 1.0 - smoothstep(0.38, 0.94, gEdge) * 0.32;
+      return clamp(chrome, 0.0, 1.0);
+    }
+
+    vec3 jellyStyle(vec2 uv) {
+      vec3 refracted = imageAt(uv + gNormal.xy * 0.012);
+      vec3 candyBase = mix(gAbstract, refracted, 0.32);
+      float l = lum(candyBase);
+      vec3 candy = luminanceRamp(l,
+        vec3(0.250, 0.130, 0.370),
+        vec3(0.880, 0.270, 0.620),
+        vec3(0.620, 0.930, 1.000));
+      candy = mix(candy, toneMap(candyBase, 0.88, 1.04), 0.24);
+
+      float subsurface = smoothstep(0.24, 0.88, l);
+      float rim = smoothstep(0.24, 0.88, gEdge);
+      float spec = pow(clamp(dot(gNormal, normalize(vec3(-0.25, 0.78, 0.58))), 0.0, 1.0), 18.0);
+      candy *= 0.74 + subsurface * 0.50;
+      candy += rim * vec3(0.240, 0.520, 0.660) + spec * vec3(0.68, 0.78, 0.88);
+      return clamp(candy, 0.0, 1.0);
+    }
+
+    vec3 terrariumStyle(vec2 uv) {
+      vec2 centered = uv - vec2(0.5, 0.5);
+      float radius = length(centered);
+      float orb = 1.0 - smoothstep(0.355, 0.405, radius);
+      vec2 magnified = vec2(0.5, 0.5) + centered * 0.68 + gNormal.xy * 0.008;
+      vec3 inside = imageAt(magnified);
+      inside = mix(inside, gAbstract, 0.42);
+      inside = toneMap(inside, 0.76, 1.03);
+      inside = mix(inside, vec3(0.200, 0.460, 0.260), 0.10);
+
+      vec3 outside = toneMap(gSmooth, 0.66, 0.96);
+      outside = mix(outside, vec3(0.650, 0.720, 0.580), 0.22);
+      outside *= 0.83 + smoothstep(0.0, 0.8, radius) * 0.12;
+
+      float glassRim = smoothstep(0.315, 0.355, radius) * smoothstep(0.430, 0.370, radius);
+      float highlight = 1.0 - smoothstep(0.0, 0.16, length(centered - vec2(-0.18, 0.16)));
+      float dew = smoothstep(0.76, 1.0, noise(uv * 180.0)) * orb;
+
+      vec3 result = mix(outside, inside, orb);
+      result += glassRim * vec3(0.62, 0.72, 0.74) + highlight * vec3(0.22, 0.25, 0.24) + dew * 0.18;
+      result *= 1.0 - smoothstep(0.36, 0.95, gEdge) * 0.18;
+      return clamp(result, 0.0, 1.0);
+    }
+
+    vec3 risographStyle(vec2 uv) {
+      vec3 base = gAbstract;
+      float l = lum(base);
+      float warm = clamp(base.r - base.b + 0.35, 0.0, 1.0);
+      float cool = clamp(base.b - base.r + 0.35, 0.0, 1.0);
+      float green = clamp(base.g + 0.20, 0.0, 1.0);
+
+      float k = screenDot(uv + vec2(0.0015, -0.0010), 0.18, 88.0, clamp((1.0 - l) * 1.08, 0.0, 1.0));
+      float c = screenDot(uv + vec2(-0.0022, 0.0012), -0.34, 94.0, cool * smoothstep(0.88, 0.18, l));
+      float m = screenDot(uv + vec2(0.0020, 0.0016), 0.47, 90.0, warm * smoothstep(0.10, 0.78, l));
+      float y = screenDot(uv + vec2(-0.0014, -0.0020), -0.12, 82.0, green * smoothstep(0.18, 0.86, l));
+
+      vec3 paper = vec3(0.972, 0.928, 0.820);
+      vec3 teal = vec3(0.070, 0.470, 0.520);
+      vec3 apricot = vec3(0.960, 0.410, 0.220);
+      vec3 violet = vec3(0.390, 0.240, 0.660);
+      vec3 ink = vec3(0.075, 0.090, 0.135);
+
+      vec3 riso = paper;
+      riso = mix(riso, teal, c * 0.78);
+      riso = mix(riso, apricot, m * 0.78);
+      riso = mix(riso, violet, y * 0.46);
+      riso = mix(riso, ink, k * 0.86);
+      riso += (noise(uv * 760.0) - 0.5) * 0.035;
+      return clamp(riso, 0.0, 1.0);
+    }
+
+    vec3 stylized(vec2 uv, float styleId) {
+      if (styleId < 0.5) return yarnStyle(uv);
+      if (styleId < 1.5) return blockStyle(uv);
+      if (styleId < 2.5) return mechaStyle();
+      if (styleId < 3.5) return retroStyle(uv);
+      if (styleId < 4.5) return clayStyle();
+      if (styleId < 5.5) return paperStyle(uv);
+      if (styleId < 6.5) return chromeStyle(uv);
+      if (styleId < 7.5) return jellyStyle(uv);
+      if (styleId < 8.5) return terrariumStyle(uv);
+      return risographStyle(uv);
+    }
+
+    void main() {
+      buildFeatures(vUv);
+      vec3 original = gOriginal;
+      vec3 effect = mix(
+        stylized(vUv, uStyleA),
+        stylized(vUv, uStyleB),
+        clamp(uStyleMix, 0.0, 1.0)
+      );
+
+      float dist = length(vUv - uMask);
+      float edge = 2.5 / 1000.0;
+      float inside = 1.0 - smoothstep(uRadius - edge, uRadius + edge, dist);
+      float region = mix(inside, 1.0 - inside, uSide);
+
+      // Radius 0 processes the complete outside; a radius beyond the image
+      // diagonal processes the complete inside.
+      region = mix(region, 1.0, step(uRadius, 0.002));
+      region = mix(region, 1.0, step(1.42, uRadius));
+
+      vec3 composed = mix(original, effect, clamp(uStrength * region, 0.0, 1.0));
+      gl_FragColor = vec4(composed, 1.0);
+    }
+  `;
+
+  function createRenderer(canvas) {
+    const gl = canvas.getContext('webgl', {
+      antialias: true,
+      preserveDrawingBuffer: true,
+      premultipliedAlpha: false
+    });
+    if (!gl) throw new Error('当前浏览器不支持 WebGL');
+
+    function compile(type, source) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const error = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error(error);
+      }
+      return shader;
+    }
+
+    const program = gl.createProgram();
+    const vs = compile(gl.VERTEX_SHADER, vertexShaderSource);
+    const fs = compile(gl.FRAGMENT_SHADER, fragmentShaderSource);
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(program));
+    }
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program, 'aPosition');
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([24, 25, 31, 255]));
+
+    const uniforms = {
+      texture: gl.getUniformLocation(program, 'uTexture'),
+      aspect: gl.getUniformLocation(program, 'uAspect'),
+      texel: gl.getUniformLocation(program, 'uTexel'),
+      styleA: gl.getUniformLocation(program, 'uStyleA'),
+      styleB: gl.getUniformLocation(program, 'uStyleB'),
+      styleMix: gl.getUniformLocation(program, 'uStyleMix'),
+      strength: gl.getUniformLocation(program, 'uStrength'),
+      mask: gl.getUniformLocation(program, 'uMask'),
+      radius: gl.getUniformLocation(program, 'uRadius'),
+      side: gl.getUniformLocation(program, 'uSide'),
+      view: gl.getUniformLocation(program, 'uView'),
+      time: gl.getUniformLocation(program, 'uTime')
+    };
+
+    let aspect = 1;
+    gl.uniform1i(uniforms.texture, 0);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+
+    return {
+      setImage(image) {
+        aspect = Math.max(0.01, image.naturalWidth || image.width) / Math.max(1, image.naturalHeight || image.height);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      },
+      render(options = {}) {
+        gl.useProgram(program);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1f(uniforms.aspect, aspect);
+        gl.uniform2f(uniforms.texel, 1 / canvas.width, 1 / canvas.height);
+        gl.uniform1f(uniforms.styleA, options.styleA ?? 0);
+        gl.uniform1f(uniforms.styleB, options.styleB ?? 0);
+        gl.uniform1f(uniforms.styleMix, options.styleMix ?? 0);
+        gl.uniform1f(uniforms.strength, options.strength ?? 0.82);
+        const maskY = 1 - (options.centerY ?? 0.5);
+        gl.uniform2f(uniforms.mask, options.centerX ?? 0.5, maskY);
+        gl.uniform1f(uniforms.radius, options.radius ?? 0.25);
+        gl.uniform1f(uniforms.side, options.maskSide === 'outside' ? 1 : 0);
+        gl.uniform1f(uniforms.view, options.view === 'original' ? 2 : 0);
+        gl.uniform1f(uniforms.time, (performance.now() % 100000) / 1000);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+    };
+  }
+
+  let renderer;
+  try {
+    renderer = createRenderer(elements.canvas);
+  } catch (error) {
+    console.error(error);
+    showTap('WebGL 初始化失败，请使用 Chrome / Edge / Safari 最新版本');
+  }
+
+  /* ---------------- Style wheel ---------------- */
+
+  function buildStyleWheel() {
+    elements.styleRotor.innerHTML = '';
+    styleNodes = STYLES.map((style, index) => {
+      const node = document.createElement('div');
+      node.className = 'style-node';
+      node.innerHTML = `<strong>${style.name}</strong>`;
+      node.title = style.tagline;
+      node.dataset.index = String(index);
+      elements.styleRotor.append(node);
+      return node;
+    });
+  }
+
+  function updateStyleWheel() {
+    const wheel = elements.styleRotor.parentElement;
+    const radius = Math.max(96, wheel.clientWidth / 2 - 46);
+    styleNodes.forEach((node, index) => {
+      const angle = ((index * 36 + state.styleRotation) % 360) * Math.PI / 180;
+      const x = Math.sin(angle) * radius;
+      const y = -Math.cos(angle) * radius;
+      node.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px) rotate(${(state.styleRotation * 0.08).toFixed(2)}deg)`;
+      node.classList.toggle('current', index === state.styleIndex);
+    });
+  }
+
+  function changeStyle(delta) {
+    const previous = state.styleIndex;
+    const next = modulo(previous, delta, STYLES.length);
+    if (next === previous) return;
+    if (state.styleBlend >= 1 || state.styleA === state.styleB) {
+      state.styleA = previous;
+      state.styleBlend = 0;
+    }
+    state.styleIndex = next;
+    state.styleB = next;
+    state.styleBlendTarget = 1;
+    state.styleRotationTarget += shortestDelta(previous, next, STYLES.length) * 36;
+    const style = STYLES[next];
+    elements.styleName.textContent = style.name;
+    elements.styleTagline.textContent = style.tagline;
+  }
+
+  /* ---------------- Source portrait handling ---------------- */
+
+  function loadImageFromUrl(url) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('图片读取失败'));
+      image.src = url;
+    });
+  }
+
+  async function normalizeImageFile(file) {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error(`${file.name || '文件'} 不是 JPEG / PNG / WebP`);
+    const url = URL.createObjectURL(file);
+    try {
+      const image = await loadImageFromUrl(url);
+      const maxSide = 1600;
+      const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+      const width = Math.max(1, Math.round(image.naturalWidth * scale));
+      const height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      return await loadImageFromUrl(dataUrl).then(loaded => ({ image: loaded, dataUrl, name: file.name || 'portrait.jpg' }));
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function sourceBounds() {
+    const rect = elements.sourceSurface.getBoundingClientRect();
+    const first = sources[0]?.element;
+    const width = first ? first.offsetWidth : 84;
+    const height = first ? first.offsetHeight : 112;
+    return {
+      minX: 14,
+      minY: Math.max(34, rect.height * 0.20),
+      maxX: Math.max(20, rect.width - width - 14),
+      maxY: Math.max(40, rect.height - height - 9),
+      width,
+      height
+    };
+  }
+
+  function addSource({ image, dataUrl, name }, select = false) {
+    if (sources.length >= MAX_SOURCES) {
+      showTap(`最多保留 ${MAX_SOURCES} 张原始照片`);
+      return;
+    }
+    const bounds = sourceBounds();
+    const index = sources.length;
+    const element = document.createElement('button');
+    element.type = 'button';
+    element.className = 'source-card';
+    element.innerHTML = `
+      <img alt="${name.replace(/[<>"]/g, '')}">
+      <span class="card-index">${index + 1}</span>
+    `;
+    element.querySelector('img').src = dataUrl;
+    elements.sourceSurface.append(element);
+
+    const source = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name,
+      dataUrl,
+      image,
+      element,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      angle: (Math.random() - 0.5) * 12,
+      homeAngle: (Math.random() - 0.5) * 9,
+      dragging: false,
+      moved: false
+    };
+    const lane = index % 5;
+    source.x = bounds.minX + ((bounds.maxX - bounds.minX) * ((index % 7) / 6)) + (Math.random() - 0.5) * 22;
+    source.y = bounds.minY + ((bounds.maxY - bounds.minY) * (lane / 4)) + (Math.random() - 0.5) * 9;
+    source.x = clamp(source.x, bounds.minX, bounds.maxX);
+    source.y = clamp(source.y, bounds.minY, bounds.maxY);
+    sources.push(source);
+    installSourceDrag(source);
+    elements.sourceEmpty.style.display = 'none';
+    updateCounts();
+    if (select || sources.length === 1) selectSource(sources.length - 1);
+  }
+
+  function selectSource(index) {
+    if (index < 0 || index >= sources.length) return;
+    state.sourceIndex = index;
+    sources.forEach((source, i) => {
+      source.element.classList.toggle('selected', i === index);
+      source.element.style.zIndex = i === index ? 26 : 10 + i;
+      source.element.querySelector('.card-index').textContent = String(i + 1);
+    });
+    renderer?.setImage(sources[index].image);
+    elements.originalPreview.src = sources[index].dataUrl;
+    updateUi();
+  }
+
+  function installSourceDrag(source) {
+    let offsetX = 0;
+    let offsetY = 0;
+    let lastX = 0;
+    let lastY = 0;
+    let lastTime = 0;
+
+    source.element.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      source.element.setPointerCapture(event.pointerId);
+      source.dragging = true;
+      source.moved = false;
+      source.element.classList.add('dragging');
+      const rect = source.element.getBoundingClientRect();
+      offsetX = event.clientX - rect.left;
+      offsetY = event.clientY - rect.top;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      lastTime = performance.now();
+      source.vx = 0;
+      source.vy = 0;
+    });
+
+    source.element.addEventListener('pointermove', event => {
+      if (!source.dragging) return;
+      const surface = elements.sourceSurface.getBoundingClientRect();
+      let nextX = event.clientX - surface.left - offsetX;
+      let nextY = event.clientY - surface.top - offsetY;
+      if (Math.abs(nextX - source.x) > 3 || Math.abs(nextY - source.y) > 3) source.moved = true;
+      const now = performance.now();
+      const dt = Math.max(0.008, (now - lastTime) / 1000);
+      source.vx = (event.clientX - lastX) / dt;
+      source.vy = (event.clientY - lastY) / dt;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      lastTime = now;
+      source.x = nextX;
+      source.y = nextY;
+    });
+
+    source.element.addEventListener('pointerup', event => {
+      if (!source.dragging) return;
+      source.dragging = false;
+      source.element.classList.remove('dragging');
+      if (!source.moved) {
+        selectSource(sources.indexOf(source));
+      } else {
+        source.vx = clamp(source.vx, -1000, 1000) * 0.42;
+        source.vy = clamp(source.vy, -1000, 1000) * 0.42;
+      }
+      event.preventDefault();
+    });
+
+    source.element.addEventListener('pointercancel', () => {
+      source.dragging = false;
+      source.element.classList.remove('dragging');
+    });
+  }
+
+  function updateSourcePhysics(dt) {
+    const bounds = sourceBounds();
+    sources.forEach((source, index) => {
+      if (!source.dragging) {
+        source.x += source.vx * dt;
+        source.y += source.vy * dt;
+        const damping = Math.pow(0.018, dt);
+        source.vx *= damping;
+        source.vy *= damping;
+
+        if (source.x < bounds.minX) {
+          source.x = bounds.minX;
+          source.vx = Math.abs(source.vx) * 0.42;
+        }
+        if (source.x > bounds.maxX) {
+          source.x = bounds.maxX;
+          source.vx = -Math.abs(source.vx) * 0.42;
+        }
+        if (source.y < bounds.minY) {
+          source.y = bounds.minY;
+          source.vy = Math.abs(source.vy) * 0.42;
+        }
+        if (source.y > bounds.maxY) {
+          source.y = bounds.maxY;
+          source.vy = -Math.abs(source.vy) * 0.42;
+        }
+        source.x = clamp(source.x, bounds.minX, bounds.maxX);
+        source.y = clamp(source.y, bounds.minY, bounds.maxY);
+      }
+
+      source.angle = ease(source.angle, source.homeAngle + source.vx * 0.0035, dt, 120);
+      const selected = index === state.sourceIndex;
+      const scale = source.dragging ? 1.055 : selected ? 1.025 : 1;
+      source.element.style.transform = `translate3d(${source.x.toFixed(2)}px, ${source.y.toFixed(2)}px, 0) rotate(${source.angle.toFixed(2)}deg) scale(${scale})`;
+    });
+  }
+
+  async function importFiles(fileList) {
+    const files = Array.from(fileList || []).filter(file => file.type.startsWith('image/'));
+    if (!files.length) return;
+    let added = 0;
+    for (const file of files) {
+      try {
+        const normalized = await normalizeImageFile(file);
+        addSource(normalized, added === 0 && files.length === 1);
+        added += 1;
+      } catch (error) {
+        showTap(error.message || '图片导入失败');
+      }
+    }
+    if (added) showTap(`已导入 ${added} 张照片`);
+  }
+
+  function makeSamplePortraits() {
+    const palettes = [
+      { bg: ['#d9b28a', '#73594a'], cloth: '#6f7f68', hair: '#28211c' },
+      { bg: ['#a7b8d8', '#3c4863'], cloth: '#c2855e', hair: '#191a1e' },
+      { bg: ['#c7c1dc', '#635a7a'], cloth: '#3f5d63', hair: '#402c23' },
+      { bg: ['#d7c6a3', '#6d5e45'], cloth: '#886b94', hair: '#211d18' }
+    ];
+    return palettes.map((palette, index) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 1000;
+      const ctx = canvas.getContext('2d');
+      const bg = ctx.createLinearGradient(0, 0, 800, 1000);
+      bg.addColorStop(0, palette.bg[0]);
+      bg.addColorStop(1, palette.bg[1]);
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, 800, 1000);
+
+      for (let i = 0; i < 90; i += 1) {
+        ctx.fillStyle = `rgba(255,255,255,${0.015 + Math.random() * 0.035})`;
+        ctx.beginPath();
+        ctx.arc(Math.random() * 800, Math.random() * 1000, Math.random() * 42 + 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // shoulders
+      ctx.fillStyle = palette.cloth;
+      ctx.beginPath();
+      ctx.ellipse(400, 920, 330, 220, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // neck and face
+      ctx.fillStyle = '#c68e69';
+      ctx.fillRect(350, 520, 100, 170);
+      const face = ctx.createRadialGradient(330, 350, 45, 400, 410, 270);
+      face.addColorStop(0, '#efc3a2');
+      face.addColorStop(1, '#a06c50');
+      ctx.fillStyle = face;
+      ctx.beginPath();
+      ctx.ellipse(400, 390, 185, 225, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // hair
+      ctx.fillStyle = palette.hair;
+      ctx.beginPath();
+      ctx.moveTo(205, 375);
+      ctx.quadraticCurveTo(230, 115, 420, 125);
+      ctx.quadraticCurveTo(615, 135, 600, 390);
+      ctx.quadraticCurveTo(535, 240, 400, 230);
+      ctx.quadraticCurveTo(270, 245, 205, 375);
+      ctx.closePath();
+      ctx.fill();
+
+      // eyes and brows
+      ctx.fillStyle = '#251d19';
+      ctx.beginPath();
+      ctx.ellipse(333, 385, 25, index % 2 ? 13 : 17, 0, 0, Math.PI * 2);
+      ctx.ellipse(467, 385, 25, index % 2 ? 13 : 17, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = palette.hair;
+      ctx.beginPath();
+      ctx.moveTo(294, 332); ctx.lineTo(364, 321);
+      ctx.moveTo(436, 321); ctx.lineTo(506, 332);
+      ctx.stroke();
+
+      // nose and mouth
+      ctx.strokeStyle = 'rgba(90,52,38,.65)';
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.moveTo(400, 410); ctx.lineTo(383, 478);
+      ctx.stroke();
+      ctx.fillStyle = '#a94f44';
+      ctx.beginPath();
+      ctx.ellipse(400, 528, 54, 24, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // lighting
+      const light = ctx.createLinearGradient(120, 0, 720, 1000);
+      light.addColorStop(0, 'rgba(255,242,226,.23)');
+      light.addColorStop(0.55, 'rgba(0,0,0,0)');
+      light.addColorStop(1, 'rgba(0,0,0,.28)');
+      ctx.fillStyle = light;
+      ctx.fillRect(0, 0, 800, 1000);
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.90);
+      const image = new Image();
+      image.src = dataUrl;
+      return { image, dataUrl, name: `示例肖像 ${index + 1}.jpg` };
+    });
+  }
+
+  /* ---------------- Works ---------------- */
+
+  function updateCounts() {
+    elements.sourceCount.textContent = `${sources.length} 张素材`;
+    elements.workCount.textContent = `${works.length} 张作品`;
+    elements.worksLabel.textContent = `${works.length} / ${MAX_WORKS}`;
+    elements.worksEmpty.style.display = works.length ? 'none' : 'grid';
+  }
+
+  function canvasToUrl() {
+    return new Promise((resolve, reject) => {
+      try {
+        renderer?.render({
+          styleA: state.styleA,
+          styleB: state.styleB,
+          styleMix: state.styleBlend,
+          strength: state.strength,
+          centerX: state.centerX,
+          centerY: state.centerY,
+          radius: state.radius,
+          maskSide: state.maskSide,
+          view: 'effect'
+        });
+        elements.canvas.toBlob(blob => {
+          if (blob) resolve(URL.createObjectURL(blob));
+          else reject(new Error('效果图导出失败'));
+        }, 'image/png');
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  async function saveWork() {
+    if (!sources.length || !renderer) {
+      showTap('请先导入一张肖像');
+      return;
+    }
+    const source = sources[state.sourceIndex];
+    const resultUrl = await canvasToUrl();
+    const style = STYLES[state.styleIndex];
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const work = {
+      id,
+      sourceUrl: source.dataUrl,
+      sourceName: source.name,
+      resultUrl,
+      style,
+      strength: Math.round(state.strength * 100),
+      radius: Math.round(state.radius * 100),
+      maskSide: state.maskSide,
+      createdAt: new Date()
+    };
+    works.push(work);
+    if (works.length > MAX_WORKS) {
+      const removed = works.shift();
+      URL.revokeObjectURL(removed.resultUrl);
+    }
+
+    const element = document.createElement('button');
+    element.type = 'button';
+    element.className = 'work-card';
+    element.style.setProperty('--tilt', `${(Math.random() - 0.5) * 8}deg`);
+    element.innerHTML = `
+      <img alt="${style.name}效果">
+      <span class="work-meta"><strong>${style.name}</strong><span>${Math.round(state.strength * 100)}%</span></span>
+    `;
+    element.querySelector('img').src = resultUrl;
+    element.addEventListener('click', () => openWorkDialog(work));
+    elements.worksSurface.append(element);
+    while (elements.worksSurface.querySelectorAll('.work-card').length > MAX_WORKS) {
+      elements.worksSurface.querySelector('.work-card').remove();
+    }
+    state.workBrowseIndex = Math.max(0, works.length - 1);
+    updateCounts();
+    showTap('已保存到下方工作台');
+  }
+
+  function openWorkDialog(work) {
+    const index = works.indexOf(work);
+    if (index >= 0) state.workBrowseIndex = index;
+    const position = state.workBrowseIndex + 1;
+    elements.dialogTitle.textContent = work.style.name;
+    elements.dialogMeta.textContent = `${position} / ${works.length} · ${work.style.tagline} · 强度 ${work.strength}%`;
+    elements.dialogOriginal.src = work.sourceUrl;
+    elements.dialogResult.src = work.resultUrl;
+    elements.dialogDownload.href = work.resultUrl;
+    elements.dialogDownload.download = `stylecam-${work.style.id}-${work.strength}.png`;
+    if (!elements.workDialog.open) elements.workDialog.showModal();
+  }
+
+  function browseWorks(delta = 0) {
+    if (!works.length) {
+      state.workBrowseIndex = 0;
+      showTap('当前还没有保存作品');
+      updateUi();
+      return;
+    }
+    if (delta === 0) {
+      if (state.workBrowseIndex < 0 || state.workBrowseIndex >= works.length) {
+        state.workBrowseIndex = works.length - 1;
+      }
+    } else {
+      state.workBrowseIndex = modulo(state.workBrowseIndex, delta > 0 ? 1 : -1, works.length);
+    }
+    openWorkDialog(works[state.workBrowseIndex]);
+    updateUi();
+  }
+
+  /* ---------------- Controls ---------------- */
+
+  function setMode(mode) {
+    state.mode = mode;
+    elements.functionGrid.querySelectorAll('.function-button').forEach(button => {
+      button.classList.toggle('active', button.dataset.mode === mode);
+    });
+    const current = MODES.find(item => item.id === mode);
+    elements.modeName.textContent = current?.name ?? '';
+    updateUi();
+    if (mode === 'works') browseWorks(0);
+  }
+
+  function adjust(delta) {
+    if (!delta) return;
+    switch (state.mode) {
+      case 'radius':
+        state.radiusTarget = clamp(state.radiusTarget + delta * 0.035, 0, MAX_RADIUS);
+        break;
+      case 'side':
+        state.maskSide = state.maskSide === 'inside' ? 'outside' : 'inside';
+        break;
+      case 'style':
+        changeStyle(delta > 0 ? 1 : -1);
+        break;
+      case 'strength':
+        state.strengthTarget = clamp(state.strengthTarget + delta * 0.05, 0, 1);
+        break;
+      case 'source':
+        if (sources.length) selectSource(modulo(state.sourceIndex, delta > 0 ? 1 : -1, sources.length));
+        break;
+      case 'works':
+        browseWorks(delta);
+        break;    }
+    updateUi();
+  }
+
+  function setView(view) {
+    state.view = view;
+    document.querySelectorAll('.view-button').forEach(button => {
+      button.classList.toggle('active', button.dataset.view === view);
+    });
+    elements.stageStack.classList.toggle('comparing', view === 'compare');
+    elements.stageStack.closest('.machine-panel')?.classList.toggle('comparing', view === 'compare');
+  }
+
+  function currentModeValue() {
+    switch (state.mode) {
+      case 'radius': return `${Math.round(state.radiusTarget * 100)}%`;
+      case 'side': return state.maskSide === 'inside' ? '圈内' : '圈外';
+      case 'style': return STYLES[state.styleIndex].name;
+      case 'strength': return `${Math.round(state.strengthTarget * 100)}%`;
+      case 'source': return sources.length ? `${state.sourceIndex + 1} / ${sources.length}` : '未导入';
+      case 'works': return works.length ? `${state.workBrowseIndex + 1} / ${works.length}` : '未保存';
+      default: return '';
+    }
+  }
+
+  function updateDialTarget() {
+    const map = (value, min, max) => -140 + 280 * ((value - min) / (max - min));
+    switch (state.mode) {
+      case 'radius': state.dialAngleTarget = map(state.radiusTarget, 0, MAX_RADIUS); break;
+      case 'side': state.dialAngleTarget = state.maskSide === 'inside' ? -70 : 70; break;
+      case 'style': state.dialAngleTarget = ((state.styleIndex * 36 - 90) % 280) - 140; break;
+      case 'strength': state.dialAngleTarget = map(state.strengthTarget, 0, 1); break;
+      case 'source': state.dialAngleTarget = sources.length > 1 ? map(state.sourceIndex, 0, sources.length - 1) : 0; break;
+      case 'works': state.dialAngleTarget = works.length > 1 ? map(state.workBrowseIndex, 0, works.length - 1) : 0; break;
+      default: state.dialAngleTarget = 0;
+    }
+  }
+
+  function updateUi() {
+    elements.modeValue.textContent = currentModeValue();
+    updateDialTarget();
+    const fullCover = state.radius >= FULL_COVER_RADIUS;
+    const zero = state.radius <= 0.002;
+    const sideText = zero ? '圆圈外 · 全图' : fullCover ? '圆圈内 · 全图' : `${state.maskSide === 'inside' ? '圆圈内' : '圆圈外'} · ${Math.round(state.radius * 100)}%`;
+    elements.maskStatus.textContent = sideText;
+    elements.strengthStatus.textContent = `强度 ${Math.round(state.strength * 100)}%`;
+  }
+
+  function updateMaskRing() {
+    const stage = elements.canvas.parentElement;
+    const width = stage.clientWidth;
+    const diameter = Math.max(2, state.radius * 2 * width);
+    elements.maskRing.style.width = `${diameter.toFixed(1)}px`;
+    elements.maskRing.style.height = `${diameter.toFixed(1)}px`;
+    elements.maskRing.style.left = `calc(${(state.centerX * 100).toFixed(2)}% - ${(diameter / 2).toFixed(1)}px)`;
+    elements.maskRing.style.top = `calc(${(state.centerY * 100).toFixed(2)}% - ${(diameter / 2).toFixed(1)}px)`;
+    elements.maskRing.classList.toggle('extreme', state.radius <= 0.004 || state.radius >= FULL_COVER_RADIUS);
+  }
+
+  function installStageDrag() {
+    const stage = elements.canvas.parentElement;
+    let tracking = false;
+
+    // Snap both the target and displayed value: while the circle is held,
+    // its center must stay exactly at the pointer rather than easing behind it.
+    const setFromEvent = event => {
+      const rect = stage.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width;
+      const y = (event.clientY - rect.top) / rect.height;
+      state.centerXTarget = x;
+      state.centerYTarget = y;
+      state.centerX = x;
+      state.centerY = y;
+    };
+    const stopTracking = () => {
+      tracking = false;
+    };
+
+    stage.style.cursor = 'crosshair';
+    stage.style.touchAction = 'none';
+    stage.style.userSelect = 'none';
+
+    stage.addEventListener('pointerdown', event => {
+      if (!event.isPrimary || event.button !== 0 || tracking) return;
+
+      const rect = stage.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width;
+      const y = (event.clientY - rect.top) / rect.height;
+      const insideImage = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+      const circleVisible = state.radius > 0.004 && state.radius < FULL_COVER_RADIUS;
+      const distanceFromCenter = Math.hypot(x - state.centerX, y - state.centerY);
+      const insideCircle = !circleVisible || distanceFromCenter <= state.radius + 0.003;
+
+      // Press inside a visible circle to start holding. Pointer capture keeps
+      // tracking the same mouse even when it moves outside the preview.
+      if (!insideImage || !insideCircle) return;
+      event.preventDefault();
+      tracking = true;
+      setFromEvent(event);
+      try { stage.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
+    });
+
+    window.addEventListener('pointermove', event => {
+      if (tracking && event.isPrimary) setFromEvent(event);
+    });
+
+    // Release the left mouse button anywhere to stop and freeze the circle.
+    window.addEventListener('pointerup', event => {
+      if (tracking && event.button === 0) stopTracking();
+    });
+
+    // These are safety exits for interrupted pointing devices or window switches.
+    window.addEventListener('pointercancel', stopTracking);
+    window.addEventListener('blur', stopTracking);
+  }
+
+  function installDialDrag() {
+    const dial = elements.dial;
+    let dragging = false;
+    let previousAngle = 0;
+    let accumulated = 0;
+    const angleFromEvent = event => {
+      const rect = dial.getBoundingClientRect();
+      return Math.atan2(event.clientY - (rect.top + rect.height / 2), event.clientX - (rect.left + rect.width / 2)) * 180 / Math.PI;
+    };
+    dial.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      dragging = true;
+      accumulated = 0;
+      previousAngle = angleFromEvent(event);
+      dial.setPointerCapture(event.pointerId);
+    });
+    dial.addEventListener('pointermove', event => {
+      if (!dragging) return;
+      const angle = angleFromEvent(event);
+      let delta = angle - previousAngle;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      previousAngle = angle;
+      accumulated += delta;
+      while (Math.abs(accumulated) >= 15) {
+        const direction = accumulated > 0 ? 1 : -1;
+        adjust(direction);
+        accumulated -= direction * 15;
+      }
+    });
+    const end = () => { dragging = false; };
+    dial.addEventListener('pointerup', end);
+    dial.addEventListener('pointercancel', end);
+  }
+
+  function installInputs() {
+    elements.functionGrid.addEventListener('click', event => {
+      const button = event.target.closest('.function-button');
+      if (button) setMode(button.dataset.mode);
+    });
+    document.querySelectorAll('.view-button').forEach(button => {
+      button.addEventListener('click', () => setView(button.dataset.view));
+    });
+    elements.uploadButton.addEventListener('click', () => elements.fileInput.click());
+    elements.fileInput.addEventListener('change', () => {
+      void importFiles(elements.fileInput.files);
+      elements.fileInput.value = '';
+    });
+    elements.saveButton.addEventListener('click', () => void saveWork());
+    elements.dialogClose.addEventListener('click', () => elements.workDialog.close());
+
+    window.addEventListener('dragover', event => event.preventDefault());
+    window.addEventListener('drop', event => {
+      event.preventDefault();
+      if (event.dataTransfer?.files?.length) void importFiles(event.dataTransfer.files);
+    });
+
+    window.addEventListener('wheel', event => {
+      const direction = event.deltaY < 0 ? 1 : -1;
+      if (elements.workDialog.open) {
+        event.preventDefault();
+        if (state.mode !== 'works') {
+          state.mode = 'works';
+          elements.functionGrid.querySelectorAll('.function-button').forEach(button => {
+            button.classList.toggle('active', button.dataset.mode === 'works');
+          });
+          elements.modeName.textContent = '查看作品';
+        }
+        browseWorks(direction);
+        return;
+      }
+      if (event.target.closest?.('#work-dialog')) return;
+      event.preventDefault();
+      adjust(direction);
+    }, { passive: false });
+
+    window.addEventListener('keydown', event => {
+      if (elements.workDialog.open) {
+        if (event.key === 'Escape') {
+          elements.workDialog.close();
+        } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+          event.preventDefault();
+          browseWorks(-1);
+        } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          browseWorks(1);
+        }
+        return;
+      }
+      const tag = event.target.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || event.target.isContentEditable) return;
+      if (event.key >= '1' && event.key <= '6') {
+        setMode(MODES[Number(event.key) - 1].id);
+        return;
+      }
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        adjust(-1);
+      } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        adjust(1);
+      } else if (event.key.toLowerCase() === 'c') {
+        setView(state.view === 'compare' ? 'effect' : 'compare');
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      sources.forEach(source => {
+        const bounds = sourceBounds();
+        source.x = clamp(source.x, bounds.minX, bounds.maxX);
+        source.y = clamp(source.y, bounds.minY, bounds.maxY);
+      });
+    });
+  }
+
+  /* ---------------- Main loop ---------------- */
+
+  let lastFrame = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, Math.max(0.001, (now - lastFrame) / 1000));
+    lastFrame = now;
+
+    state.radius = ease(state.radius, state.radiusTarget, dt, 72);
+    state.centerX = ease(state.centerX, state.centerXTarget, dt, 58);
+    state.centerY = ease(state.centerY, state.centerYTarget, dt, 58);
+    state.strength = ease(state.strength, state.strengthTarget, dt, 78);
+    state.styleBlend = ease(state.styleBlend, state.styleBlendTarget, dt, 88);
+    if (state.styleBlend >= 0.999 && state.styleBlendTarget === 1) {
+      state.styleA = state.styleB;
+      state.styleBlend = 0;
+      state.styleBlendTarget = 0;
+    }
+    state.styleRotation = ease(state.styleRotation, state.styleRotationTarget, dt, 105);
+    state.dialAngle = ease(state.dialAngle, state.dialAngleTarget, dt, 82);
+
+    if (Math.abs(state.styleRotationTarget - state.styleRotation) < 0.08) state.styleRotation = state.styleRotationTarget;
+    elements.dial.style.transform = `rotate(${state.dialAngle.toFixed(2)}deg)`;
+
+    renderer?.render({
+      styleA: state.styleA,
+      styleB: state.styleB,
+      styleMix: state.styleBlend,
+      strength: state.strength,
+      centerX: state.centerX,
+      centerY: state.centerY,
+      radius: state.radius,
+      maskSide: state.maskSide,
+      view: state.view
+    });
+
+    updateStyleWheel();
+    updateMaskRing();
+    updateUi();
+    updateSourcePhysics(dt);
+    requestAnimationFrame(frame);
+  }
+
+  async function init() {
+    buildStyleWheel();
+    installInputs();
+    installStageDrag();
+    installDialDrag();
+    setMode('radius');
+    updateCounts();
+
+    const samples = makeSamplePortraits();
+    // Decode generated samples before addSource() uploads them; otherwise the
+    // first WebGL selection can receive an unfinished HTMLImageElement.
+    await Promise.all(samples.map(async sample => {
+      await sample.image.decode?.().catch(() => {});
+      return sample;
+    }));
+    samples.forEach(sample => addSource(sample));
+    selectSource(0);
+    updateUi();
+    requestAnimationFrame(frame);
+    showTap('已载入示例肖像，可拖入照片替换');
+  }
+
+  void init();
+})();
