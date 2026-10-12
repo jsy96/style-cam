@@ -5,7 +5,7 @@ A portrait style workbench with:
 - 10 real-time WebGL style previews
 - circular inside/outside editing
 - original/result comparison
-- natural source and finished-print surfaces
+- tidy, compact source and finished-print surfaces
 - an optional AI image generation pipeline
 - a clearly labeled local demo mode when no API key is configured
 
@@ -15,7 +15,7 @@ A portrait style workbench with:
 npm start
 ```
 
-Open <http://127.0.0.1:4174/?v=16>.
+Open <http://127.0.0.1:4174/?v=17>.
 
 ## Optional AI mode
 

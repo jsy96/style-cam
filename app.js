@@ -18,6 +18,7 @@
     { id: 'strength', name: '强度大小' },
     { id: 'style', name: '风格切换' },
     { id: 'radius', name: '圆圈大小' },
+    { id: 'source', name: '轮换照片' },
     { id: 'view', name: '原图 / 效果' },
     { id: 'works', name: '查看作品' }
   ];
@@ -120,6 +121,7 @@
   const works = [];
   let sourcesOrganized = false;
   let worksOrganized = false;
+  let inputCommandSerial = 0;
   const aiPipeline = {
     checking: true,
     available: false,
@@ -1261,13 +1263,13 @@
     state.strengthTarget = 0;
     state.strength = 0;
     setView('original');
-    setMode('view');
-    updateUi();
-    showTap('效果图已重置为原图');
+    setMode('source');
+    showTap('已重置为原图；旋钮轮换各张原始图');
   }
 
   function runInputCommand(command) {
     if (aiPipeline.generating && command !== 'works' && command !== 'compare' && command !== 'original') return;
+    const commandSerial = ++inputCommandSerial;
     switch (command) {
       case 'strength':
         setCreativeDisplay(false);
@@ -1277,19 +1279,23 @@
         break;
       case 'compare':
         setView(state.view === 'compare' ? 'effect' : 'compare');
-        setMode('view');
+        setMode('source');
+        showTap(state.view === 'compare' ? '旋钮轮换各张对比图' : '旋钮轮换各张效果图');
         if (elements.workDialog.open) flashComparison();
         break;
       case 'save':
-        if (elements.workDialog.open && dialogContext.work && !dialogContext.saved) {
-          void saveWork({ work: dialogContext.work }).then(work => {
-            if (work) setMode('view');
-          });
-        } else {
-          void saveWork().then(work => {
-            if (work) setMode('view');
-          });
-        }
+        const savePreview = elements.workDialog.open && dialogContext.work && !dialogContext.saved;
+        const savePromise = savePreview
+          ? saveWork({ work: dialogContext.work })
+          : saveWork();
+        void savePromise.then(work => {
+          if (!work || commandSerial !== inputCommandSerial) return;
+          if (elements.workDialog.open) elements.workDialog.close();
+          setCreativeDisplay(false);
+          setView('effect');
+          setMode('source');
+          showTap('已保存；旋钮按同风格 / 同强度轮换效果图');
+        });
         break;
       case 'works':
         // S4 keeps its dedicated behavior: close an open preview or browse works.
@@ -1307,7 +1313,8 @@
         break;
       case 'original':
         setView(state.view === 'original' ? 'effect' : 'original');
-        setMode('view');
+        setMode('source');
+        showTap(state.view === 'original' ? '旋钮轮换各张效果图' : '旋钮轮换各张原始图');
         break;
       case 'style':
         setCreativeDisplay(false);
@@ -1756,13 +1763,19 @@
     updateHardwareUi();
   }
 
+  function sourceModeLabel() {
+    if (state.view === 'compare') return '轮换对比图';
+    if (state.view === 'original') return '轮换原始图';
+    return '轮换效果图';
+  }
+
   function setMode(mode) {
     state.mode = mode;
     elements.functionGrid.querySelectorAll('.function-button').forEach(button => {
       button.classList.toggle('active', button.dataset.mode === mode);
     });
     const current = MODES.find(item => item.id === mode);
-    elements.modeName.textContent = current?.name ?? '';
+    elements.modeName.textContent = mode === 'source' ? sourceModeLabel() : current?.name ?? '';
     updateUi();
     if (mode === 'works') browseWorks(0);
   }
@@ -2091,6 +2104,7 @@
     installHardwareBridge();
     installStageDrag();
     installDialDrag();
+    setView('effect');
     setMode('style');
     updateCounts();
     void detectAiService();
@@ -2098,11 +2112,23 @@
     // Static portraits still pass through the same decode boundary before WebGL
     // upload, preventing INVALID_VALUE from incompletely decoded textures.
     const samples = await loadDefaultPortraits();
+    sourcesOrganized = true;
+    worksOrganized = true;
     samples.forEach(sample => addSource(sample));
     selectSource(0);
+    organizeSources();
+    sources.forEach(source => {
+      if (source.targetX === null || source.targetY === null) return;
+      source.x = source.targetX;
+      source.y = source.targetY;
+      source.angle = 0;
+      source.vx = 0;
+      source.vy = 0;
+      source.element.style.transform = `translate3d(${source.x.toFixed(2)}px, ${source.y.toFixed(2)}px, 0) rotate(0deg)`;
+    });
     updateUi();
     requestAnimationFrame(frame);
-    showTap('已载入 10 张默认肖像，可拖入照片替换');
+    showTap('已载入 10 张默认肖像，已保持整理状态');
   }
 
   void init();
