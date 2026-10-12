@@ -15,7 +15,7 @@ A portrait style workbench with:
 npm start
 ```
 
-Open <http://127.0.0.1:4174/?v=15>.
+Open <http://127.0.0.1:4174/?v=16>.
 
 ## Optional AI mode
 

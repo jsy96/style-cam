@@ -136,6 +136,13 @@ img { user-select: none; }
 }
 .quiet-button:hover { border-color: rgba(217,155,104,.52); transform: translateY(-1px); }
 .quiet-button:active { transform: translateY(1px); }
+.organize-button {
+  min-height: 34px; padding: 7px 14px; border-radius: 11px; font-size: 11px;
+}
+#hardware-connect {
+  min-width: 152px; min-height: 50px; padding: 12px 15px; border-radius: 13px;
+  font-size: 12px; font-weight: 650; letter-spacing: .05em;
+}
 
 .source-surface {
   position: absolute; inset: 0;
@@ -183,8 +190,11 @@ img { user-select: none; }
     linear-gradient(180deg, rgba(0,0,0,.20), transparent 25%),
     repeating-linear-gradient(90deg, rgba(255,255,255,.014) 0 1px, transparent 1px 74px);
 }
+.works-surface.organized {
+  flex-wrap: nowrap; justify-content: flex-start; gap: 0;
+}
 .work-card {
-  position: relative; width: 72px; height: 98px; padding: 3px;
+  position: relative; flex: 0 0 auto; width: 72px; height: 98px; padding: 3px;
   border-radius: 10px; overflow: hidden;
   border: 1px solid rgba(255,255,255,.15);
   background: linear-gradient(160deg, #343743, #151620);
@@ -217,7 +227,12 @@ img { user-select: none; }
   background: linear-gradient(180deg, rgba(34,36,45,.98), rgba(14,15,20,.99));
   box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,.06);
 }
-.machine-panel { padding: 13px 16px 11px; display: grid; grid-template-rows: auto minmax(0,1fr) auto; gap: 7px; }
+.machine-panel { position: relative; padding: 10px 12px; display: grid; grid-template-rows: auto minmax(0,1fr) auto; }
+.machine-topline { position: relative; z-index: 5; }
+.machine-label { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.machine-label strong { font-size: 11px; letter-spacing: .12em; white-space: nowrap; }
+.machine-label small { color: var(--muted); font-size: 8px; white-space: nowrap; }
+.homework-mode { color: #d8cdbd; font-size: 8px; white-space: nowrap; }
 .view-button {
   height: 24px; border: 0; border-radius: 7px; color: var(--muted);
   background: transparent; font-size: 9px; letter-spacing: .05em;
@@ -228,8 +243,8 @@ img { user-select: none; }
 }
 
 .style-wheel {
-  position: relative; min-height: 0; width: 100%;
-  display: grid; place-items: center; overflow: hidden;
+  position: absolute; z-index: 1; left: 12px; right: 12px; top: 28px; bottom: 9px;
+  min-height: 0; width: auto; display: grid; place-items: center; overflow: hidden;
 }
 .wheel-hub {
   position: relative; width: 100%; height: 100%;
@@ -279,20 +294,61 @@ img { user-select: none; }
   opacity: .95;
 }
 .mask-ring.extreme { opacity: .28; }
-.stage-caption { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
-.stage-caption > div:first-child { min-width: 0; display: grid; gap: 2px; }
-.stage-caption strong { font-size: 16px; }
-.stage-caption small { color: var(--muted); font-size: 10px; }
+.stage-caption {
+  position: absolute; z-index: 6; left: 14px; right: 12px; bottom: 10px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+  pointer-events: none;
+}
+.stage-caption > small {
+  max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 3px 7px; border-radius: 7px; color: #d9d6cd;
+  background: rgba(8,9,12,.68); font-size: 9px;
+}
 .caption-metrics {
-  width: 112px; display: grid; gap: 4px; justify-items: stretch;
+  width: 112px; display: grid; gap: 4px; justify-items: stretch; pointer-events: none;
 }
 .caption-metrics > span {
   display: block; width: 100%; text-align: center;
-}
-.caption-metrics span {
   padding: 3px 7px; border-radius: 7px; border: 1px solid var(--line);
   color: #c9c6bd; background: rgba(0,0,0,.20); font-size: 9px; white-space: nowrap;
 }
+.caption-metrics .dial-module {
+  width: 112px; display: grid; justify-items: end; gap: 3px;
+  padding: 0; border: 0; background: none; box-shadow: none; pointer-events: auto;
+}
+.caption-metrics .dial-orbit,
+.caption-metrics .dial { pointer-events: auto; }
+.dial-orbit {
+  position: relative; width: 76px; height: 76px;
+  display: grid; place-items: center; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.68);
+  background: #ece5ef;
+  box-shadow: 0 8px 18px rgba(0,0,0,.30), inset 0 2px 5px rgba(255,255,255,.85);
+}
+.dial {
+  position: relative; z-index: 1; width: 48px; height: 48px;
+  border: 0; border-radius: 50%; background: transparent;
+  touch-action: none; margin: 0; padding: 0;
+}
+.dial-face {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: #ff0028;
+  border: 1px solid rgba(178,0,26,.55);
+  box-shadow: inset 0 2px 5px rgba(255,255,255,.24), 0 5px 12px rgba(178,0,26,.32);
+}
+.dial-face::after { content: none; }
+.dial-marker {
+  position: absolute; left: calc(50% - 2px); top: 4px; width: 4px; height: 9px;
+  border-radius: 3px; background: #fff; box-shadow: 0 0 7px rgba(255,255,255,.82); z-index: 2;
+}
+.dial:active .dial-face { transform: scale(.97); }
+.dial-readout {
+  min-width: 100%; display: grid; place-items: center; gap: 0;
+  padding: 2px 4px; border-radius: 7px; text-align: center;
+  border: 1px solid var(--line); background: rgba(0,0,0,.44);
+}
+.dial-readout strong { font-size: 8.5px; line-height: 1.2; }
+.dial-readout span { color: var(--muted); font-size: 7.5px; }
 
 dialog {
   width: min(980px, calc(100vw - 32px)); max-height: calc(100dvh - 32px);
@@ -336,55 +392,6 @@ dialog::backdrop { background: rgba(4,4,7,.76); backdrop-filter: blur(8px); }
 .panel-title strong { font-size: 12px; letter-spacing: .17em; }
 .panel-title small { color: var(--muted); font-size: 9px; }
 
-.dial-module {
-  width: 112px; display: grid; justify-items: end; gap: 3px;
-  padding: 0; border: 0; background: none; box-shadow: none;
-}
-.dial-orbit {
-  position: relative; width: 96px; height: 96px;
-  display: grid; place-items: center; border-radius: 50%;
-  border: 1px solid rgba(255,255,255,.16);
-  background:
-    radial-gradient(circle at 50% 34%, rgba(255,255,255,.075), transparent 36%),
-    linear-gradient(180deg, rgba(31,33,41,.97), rgba(11,12,16,.99));
-  box-shadow: 0 14px 30px rgba(0,0,0,.36), inset 0 1px rgba(255,255,255,.08);
-}
-.dial-scale {
-  position: absolute; inset: 6px; width: auto; height: auto; border-radius: 50%;
-  background: repeating-conic-gradient(from 0deg, rgba(255,255,255,.22) 0deg .8deg, transparent .8deg 30deg);
-  mask: radial-gradient(circle, transparent 64%, #000 65%, #000 75%, transparent 76%);
-}
-.dial {
-  position: relative; z-index: 1; width: 54px; height: 54px;
-  border: 0; border-radius: 50%; background: transparent;
-  touch-action: none; margin: 0; padding: 0;
-}
-.dial-face {
-  position: absolute; inset: 0; border-radius: 50%;
-  background:
-    radial-gradient(circle at 34% 24%, #474b57, #171a20 58%, #0d0f13),
-    conic-gradient(from 180deg, rgba(255,255,255,.10), rgba(0,0,0,.12), rgba(255,255,255,.10));
-  border: 1px solid rgba(255,255,255,.20);
-  box-shadow: 0 10px 20px rgba(0,0,0,.56), inset 0 2px 5px rgba(255,255,255,.17), inset 0 -7px 13px rgba(0,0,0,.66);
-}
-.dial-face::after {
-  content: ""; position: absolute; inset: 10px; border-radius: 50%;
-  background: radial-gradient(circle at 36% 25%, #353a46, #101218 65%);
-  box-shadow: inset 0 2px 6px rgba(0,0,0,.75), inset 0 -2px 4px rgba(255,255,255,.06);
-}
-.dial-marker {
-  position: absolute; left: calc(50% - 2px); top: 5px; width: 4px; height: 9px;
-  border-radius: 3px; background: #f4ded0; box-shadow: 0 0 10px rgba(255,224,190,.75); z-index: 2;
-}
-.dial:active .dial-face { transform: scale(.97); }
-.dial-readout {
-  min-width: 100%; display: grid; place-items: center; gap: 0;
-  padding: 2px 4px; border-radius: 7px; text-align: center;
-  border: 1px solid var(--line); background: rgba(0,0,0,.20);
-}
-.dial-readout strong { font-size: 8.5px; line-height: 1.2; }
-.dial-readout span { color: var(--muted); font-size: 7.5px; }
-
 .function-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 6px; }
 .function-button {
   min-height: 45px; padding: 5px 4px; display: grid; gap: 1px; place-items: center;
@@ -416,7 +423,7 @@ dialog::backdrop { background: rgba(4,4,7,.76); backdrop-filter: blur(8px); }
 .hardware-module header > div:first-child { display: grid; gap: 1px; }
 .hardware-module strong { font-size: 8.5px; letter-spacing: .10em; }
 .hardware-module small { color: var(--muted); font-size: 7.5px; line-height: 1.25; }
-.hardware-module .quiet-button { min-height: 23px; padding: 3px 7px; font-size: 8px; }
+.hardware-module .quiet-button:not(#hardware-connect) { min-height: 23px; padding: 3px 7px; font-size: 8px; }
 .hardware-protocol {
   min-height: 19px; display: flex; align-items: center; overflow: hidden;
   padding: 3px 5px; border-radius: 7px; border: 1px dashed rgba(255,255,255,.14);
@@ -435,9 +442,11 @@ dialog::backdrop { background: rgba(4,4,7,.76); backdrop-filter: blur(8px); }
   .middle-layout { grid-template-columns: minmax(0,1fr) 264px; }
   .control-panel { padding: 11px; }
   .hardware-module { padding: 5px; }
-  .hardware-module .quiet-button { min-height: 20px; }
-  .dial-orbit { width: 88px; height: 88px; }
-  .dial { width: 50px; height: 50px; }
+  .hardware-module .quiet-button:not(#hardware-connect) { min-height: 20px; }
+  #hardware-connect { min-height: 46px; min-width: 128px; }
+  .style-wheel { top: 27px; }
+  .dial-orbit { width: 72px; height: 72px; }
+  .dial { width: 46px; height: 46px; }
 }
 @media (max-height: 850px) {
   .app-shell { padding: 10px; }
@@ -447,8 +456,9 @@ dialog::backdrop { background: rgba(4,4,7,.76); backdrop-filter: blur(8px); }
   .source-card, .work-card { width: 66px; height: 90px; }
   .control-panel { gap: 7px; padding: 10px; }
   .caption-metrics, .dial-module { width: 102px; }
-  .dial-orbit { width: 84px; height: 84px; }
-  .dial { width: 48px; height: 48px; }
+  .style-wheel { top: 26px; bottom: 8px; }
+  .dial-orbit { width: 70px; height: 70px; }
+  .dial { width: 45px; height: 45px; }
   .function-grid { gap: 4px; }
   .function-button { min-height: 39px; padding: 3px 3px; }
   .function-button strong { font-size: 10px; }

@@ -76,7 +76,6 @@
     stageStack: document.getElementById('stage-stack'),
     originalPreview: document.getElementById('original-preview'),
     maskRing: document.getElementById('mask-ring'),
-    styleName: document.getElementById('style-name'),
     styleTagline: document.getElementById('style-tagline'),
     maskStatus: document.getElementById('mask-status'),
     strengthStatus: document.getElementById('strength-status'),
@@ -99,6 +98,7 @@
     workCount: document.getElementById('work-count'),
     worksLabel: document.getElementById('works-label'),
     uploadButton: document.getElementById('upload-button'),
+    organizeButton: document.getElementById('organize-button'),
     fileInput: document.getElementById('file-input'),
     aiResultLayer: document.getElementById('ai-result-layer'),
     aiResultImage: document.getElementById('ai-result-image'),
@@ -118,6 +118,8 @@
 
   const sources = [];
   const works = [];
+  let sourcesOrganized = false;
+  let worksOrganized = false;
   const aiPipeline = {
     checking: true,
     available: false,
@@ -711,7 +713,6 @@
     state.styleB = next;
     state.styleBlendTarget = 1;
     const style = STYLES[next];
-    elements.styleName.textContent = style.name;
     elements.styleTagline.textContent = style.tagline;
   }
 
@@ -791,6 +792,9 @@
       vy: 0,
       angle: (Math.random() - 0.5) * 12,
       homeAngle: (Math.random() - 0.5) * 9,
+      organized: false,
+      targetX: null,
+      targetY: null,
       dragging: false,
       moved: false
     };
@@ -800,6 +804,7 @@
     source.x = clamp(source.x, bounds.minX, bounds.maxX);
     source.y = clamp(source.y, bounds.minY, bounds.maxY);
     sources.push(source);
+    if (sourcesOrganized) organizeSources();
     installSourceDrag(source);
     elements.sourceEmpty.style.display = 'none';
     updateCounts();
@@ -830,6 +835,9 @@
       event.preventDefault();
       source.element.setPointerCapture(event.pointerId);
       source.dragging = true;
+      source.organized = false;
+      source.targetX = null;
+      source.targetY = null;
       source.moved = false;
       source.element.classList.add('dragging');
       const rect = source.element.getBoundingClientRect();
@@ -878,10 +886,66 @@
     });
   }
 
+  function organizeSources() {
+    if (!sources.length) return;
+    const bounds = sourceBounds();
+    const cardWidth = bounds.width || 72;
+    const available = Math.max(0, bounds.maxX - bounds.minX);
+    const naturalSpacing = cardWidth + 8;
+    // Keep one left-to-right lane. When space is insufficient, cards compact
+    // and overlap instead of wrapping; later cards naturally cover earlier ones.
+    const spacing = sources.length > 1
+      ? Math.max(cardWidth * 0.24, Math.min(naturalSpacing, available / (sources.length - 1)))
+      : 0;
+    const rowY = bounds.minY + ((bounds.maxY - bounds.minY) * 0.50);
+    sources.forEach((source, index) => {
+      source.organized = true;
+      source.homeAngle = 0;
+      source.targetX = bounds.minX + index * spacing;
+      source.targetY = clamp(rowY, bounds.minY, bounds.maxY);
+      source.vx = 0;
+      source.vy = 0;
+    });
+  }
+
+  function organizeWorks() {
+    const cards = Array.from(elements.worksSurface.querySelectorAll('.work-card'));
+    elements.worksSurface.classList.toggle('organized', Boolean(cards.length));
+    if (!cards.length) return;
+
+    const rect = elements.worksSurface.getBoundingClientRect();
+    const cardWidth = cards[0].offsetWidth || 72;
+    const available = Math.max(0, rect.width - 48);
+    const naturalSpacing = cardWidth + 10;
+    const spacing = cards.length > 1
+      ? Math.max(cardWidth * 0.24, Math.min(naturalSpacing, (available - cardWidth) / (cards.length - 1)))
+      : 0;
+    cards.forEach((card, index) => {
+      card.style.marginLeft = index === 0 ? '0px' : `${spacing - cardWidth}px`;
+      card.style.setProperty('--tilt', '0deg');
+      card.style.zIndex = String(10 + index);
+    });
+  }
+
+  function organizeAll() {
+    sourcesOrganized = true;
+    worksOrganized = true;
+    organizeSources();
+    organizeWorks();
+    showTap('已按从左到右整理，空间不足时自动紧凑重叠');
+  }
+
   function updateSourcePhysics(dt) {
     const bounds = sourceBounds();
     sources.forEach((source, index) => {
-      if (!source.dragging) {
+      if (!source.dragging && source.organized && source.targetX !== null && source.targetY !== null) {
+        source.x = ease(source.x, source.targetX, dt, 118);
+        source.y = ease(source.y, source.targetY, dt, 118);
+        if (Math.abs(source.x - source.targetX) < 0.08) source.x = source.targetX;
+        if (Math.abs(source.y - source.targetY) < 0.08) source.y = source.targetY;
+        source.vx = 0;
+        source.vy = 0;
+      } else if (!source.dragging) {
         source.x += source.vx * dt;
         source.y += source.vy * dt;
         const damping = Math.pow(0.018, dt);
@@ -892,7 +956,7 @@
           source.x = bounds.minX;
           source.vx = Math.abs(source.vx) * 0.42;
         }
-        if (source.x > bounds.maxX) {
+        if (!source.organized && source.x > bounds.maxX) {
           source.x = bounds.maxX;
           source.vx = -Math.abs(source.vx) * 0.42;
         }
@@ -904,8 +968,8 @@
           source.y = bounds.maxY;
           source.vy = -Math.abs(source.vy) * 0.42;
         }
-        source.x = clamp(source.x, bounds.minX, bounds.maxX);
-        source.y = clamp(source.y, bounds.minY, bounds.maxY);
+        source.x = source.organized ? source.x : clamp(source.x, bounds.minX, bounds.maxX);
+        source.y = source.organized ? source.y : clamp(source.y, bounds.minY, bounds.maxY);
       }
 
       source.angle = ease(source.angle, source.homeAngle + source.vx * 0.0035, dt, 120);
@@ -1531,6 +1595,7 @@
     while (elements.worksSurface.querySelectorAll('.work-card').length > MAX_WORKS) {
       elements.worksSurface.querySelector('.work-card').remove();
     }
+    if (worksOrganized) organizeWorks();
     state.workBrowseIndex = Math.max(0, works.length - 1);
     updateCounts();
     updateSaveUi();
@@ -1741,7 +1806,7 @@
     switch (state.mode) {
       case 'radius': return `${Math.round(state.radiusTarget * 100)}%`;
       case 'side': return state.maskSide === 'inside' ? '圈内' : '圈外';
-      case 'style': return STYLES[state.styleIndex].name;
+      case 'style': return `${state.styleIndex + 1} / ${STYLES.length}`;
       case 'strength': return `${Math.round(state.strengthTarget * 100)}%`;
       case 'source': return sources.length ? `${state.sourceIndex + 1} / ${sources.length}` : '未导入';
       case 'works': return works.length ? `${state.workBrowseIndex + 1} / ${works.length}` : '未保存';
@@ -1898,6 +1963,7 @@
       runInputCommand(button.dataset.command);
     });
     elements.uploadButton.addEventListener('click', () => elements.fileInput.click());
+    elements.organizeButton.addEventListener('click', organizeAll);
     elements.fileInput.addEventListener('change', () => {
       void importFiles(elements.fileInput.files);
       elements.fileInput.value = '';
@@ -1973,9 +2039,11 @@
     window.addEventListener('resize', () => {
       sources.forEach(source => {
         const bounds = sourceBounds();
-        source.x = clamp(source.x, bounds.minX, bounds.maxX);
-        source.y = clamp(source.y, bounds.minY, bounds.maxY);
+        source.x = source.organized ? source.x : clamp(source.x, bounds.minX, bounds.maxX);
+        source.y = source.organized ? source.y : clamp(source.y, bounds.minY, bounds.maxY);
       });
+      if (sourcesOrganized) organizeSources();
+      if (worksOrganized) organizeWorks();
     });
   }
 

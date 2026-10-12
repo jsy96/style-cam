@@ -24,6 +24,7 @@
         <span class="chip" id="hardware-chip">硬件未连接</span>
         <span class="chip" id="source-count">0 张素材</span>
         <span class="chip" id="work-count">0 张作品</span>
+        <button id="organize-button" class="quiet-button organize-button" type="button">一键整理</button>
       </div>
     </header>
 
@@ -78,28 +79,20 @@
           </div>
 
           <div class="stage-caption">
-            <div>
-              <strong id="style-name">毛线旅行家</strong>
-              <small id="style-tagline">把熟悉的人与物，织成掌心里的温柔。</small>
-            </div>
+            <small id="style-tagline">把熟悉的人与物，织成掌心里的温柔。</small>
             <div class="caption-metrics">
               <span id="mask-status">圆圈内 · 42%</span>
               <span id="strength-status">强度 82%</span>
 
               <div class="dial-module">
+                <div class="dial-readout">
+                  <strong id="mode-name">圆圈大小</strong>
+                  <span id="mode-value">1 / 10</span>
+                </div>
                 <div class="dial-orbit">
-                  <div class="dial-scale" aria-hidden="true">
-                    <span></span><span></span><span></span><span></span>
-                    <span></span><span></span><span></span><span></span>
-                    <span></span><span></span><span></span><span></span>
-                  </div>
                   <button id="dial" class="dial" type="button" aria-label="旋钮">
                     <span class="dial-face"><span class="dial-marker"></span></span>
                   </button>
-                </div>
-                <div class="dial-readout">
-                  <strong id="mode-name">圆圈大小</strong>
-                  <span id="mode-value">42%</span>
                 </div>
               </div>
             </div>
