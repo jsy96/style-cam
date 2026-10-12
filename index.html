@@ -21,7 +21,7 @@
       </div>
       <div class="status-group">
         <span class="chip active">LOCAL LIVE</span>
-        <span class="chip" id="ai-service-chip">AI 检测中</span>
+        <span class="chip" id="hardware-chip">硬件未连接</span>
         <span class="chip" id="source-count">0 张素材</span>
         <span class="chip" id="work-count">0 张作品</span>
       </div>
@@ -50,18 +50,13 @@
         <div class="machine-panel">
           <div class="machine-topline">
             <div class="machine-label">
-              <strong>PROCESS TURNTABLE</strong>
+              <strong>PROCESS WORKBENCH</strong>
               <small>十组风格 · 实时旋调</small>
-            </div>
-            <div class="view-switch" role="group" aria-label="显示模式">
-              <button class="view-button active" data-view="effect" type="button">效果</button>
-              <button class="view-button" data-view="compare" type="button">对比</button>
-              <button class="view-button" data-view="original" type="button">原图</button>
+              <span class="homework-mode" id="homework-mode">普通创作 · 旋钮选择风格</span>
             </div>
           </div>
 
           <div class="style-wheel">
-            <div class="wheel-rotor" id="style-rotor"></div>
             <div class="wheel-hub">
               <div class="stage-stack" id="stage-stack">
                 <figure class="stage-pane original-pane">
@@ -98,7 +93,7 @@
         <aside class="control-panel" aria-label="旋钮控制">
           <div class="panel-title">
             <strong>CONTROL</strong>
-            <small>数字键选择 · 滚轮调节</small>
+            <small>数字 1～8 · 实体 S1～S8</small>
           </div>
 
 
@@ -116,46 +111,34 @@
               <span id="mode-value">42%</span>
             </div>
           </div>
+
           <div class="function-grid" id="function-grid">
-            <button class="function-button active" data-mode="radius" type="button"><strong>1</strong><span>圆圈大小</span></button>
-            <button class="function-button" data-mode="side" type="button"><strong>2</strong><span>圈内 / 圈外</span></button>
-            <button class="function-button" data-mode="style" type="button"><strong>3</strong><span>风格类型</span></button>
-            <button class="function-button" data-mode="strength" type="button"><strong>4</strong><span>风格强度</span></button>
-            <button class="function-button" data-mode="source" type="button"><strong>5</strong><span>选择图片</span></button>
-            <button class="function-button" data-mode="works" type="button"><strong>6</strong><span>查看作品</span></button>
+            <button class="function-button" type="button" data-command="strength" data-mode="strength"><strong>1</strong><span>强度大小</span></button>
+            <button class="function-button" type="button" data-command="compare"><strong>2</strong><span>对比 / 效果</span></button>
+            <button class="function-button" type="button" data-command="save"><strong>3</strong><span>保存效果图</span></button>
+            <button class="function-button" type="button" data-command="works" data-mode="works"><strong>4</strong><span>工作台 / 作品</span></button>
+            <button class="function-button" type="button" data-command="original"><strong>5</strong><span>效果 / 原图</span></button>
+            <button class="function-button" type="button" data-command="style" data-mode="style"><strong>6</strong><span>风格大小</span></button>
+            <button class="function-button" type="button" data-command="reset"><strong>7</strong><span>重置为原图</span></button>
+            <button class="function-button" type="button" data-command="radius" data-mode="radius"><strong>8</strong><span>圆圈大小</span></button>
           </div>
 
           <div class="control-hints">
-            <span>滚轮 / 拖动旋钮</span>
-            <span>移动画面调整圆心</span>
-            <span>按 6 后滚轮切换作品</span>
+            <span>1 / 6 / 8 选择旋钮调节对象</span>
+            <span>3 只保存一次，新效果图出现后恢复</span>
+            <span>8 后滚轮调窗口，按住圆心可拖动</span>
           </div>
-
-          <button id="save-button" class="primary-button" type="button">保存当前成片到下方</button>
+          <section class="hardware-module" aria-label="EasyInput 硬件链路">
+            <header>
+              <div>
+                <strong>EASYINPUT LINK</strong>
+                <small id="hardware-state-line">未连接 · 鼠标滚轮可用</small>
+              </div>
+              <button id="hardware-connect" class="quiet-button" type="button">连接设备</button>
+            </header>
+            <div class="hardware-protocol" id="hardware-event">等待实体输入事件</div>
+          </section>
         </aside>
-
-        <section class="ai-panel" aria-label="AI 出片">
-          <header>
-            <div>
-              <strong>AI IMAGE PIPELINE</strong>
-              <small>完整场景 · 材质 · 光影重构</small>
-            </div>
-            <span id="ai-mode-badge">检测中</span>
-          </header>
-          <label class="ai-field">
-            <span>补充灵感</span>
-            <textarea id="inspiration-input" rows="3" placeholder="例如：黄昏旅行桌、柔和窗光、保留人物身份和表情"></textarea>
-          </label>
-          <div class="ai-summary" id="ai-summary">毛线旅行家 · 强度 82%</div>
-          <div class="ai-flow" id="ai-flow" data-state="ready" aria-label="生成流程">
-            <span data-step="freeze"><strong>01</strong>素材与参数冻结</span>
-            <span data-step="prompt"><strong>02</strong>风格提示词组装</span>
-            <span data-step="model"><strong>03</strong>图像模型生成</span>
-            <span data-step="print"><strong>04</strong>出片 · 对比 · 保存</span>
-          </div>
-          <button id="generate-button" class="ai-button" type="button">生成 AI 成片</button>
-          <div class="ai-status" id="ai-status">等待出片</div>
-        </section>
       </section>
 
       <section class="deck works-deck" aria-label="满意照片区">
@@ -171,7 +154,8 @@
         <div id="works-surface" class="works-surface">
           <div class="works-empty">
             <span>Finished Prints</span>
-            <small>按 6 可循环查看已保存的原图与效果对比</small>
+            <small>按 4 可查看已保存的原图与效果对比</small>
+            <span id="creative-hint">创意显示：8 / S8 进入 · 旋钮调窗口 · 按住圆心拖动</span>
           </div>
         </div>
       </section>
@@ -187,12 +171,14 @@
         </div>
         <div class="dialog-actions">
           <a id="dialog-download" class="quiet-button" download="stylecam-work.png">下载 PNG</a>
+          <button id="dialog-save" class="quiet-button" type="button" disabled>保存到下方</button>
+          <button id="dialog-creative" class="quiet-button" type="button">进入创意显示</button>
           <button id="dialog-close" class="quiet-button" type="button">关闭</button>
         </div>
       </header>
       <div class="dialog-compare">
         <figure><figcaption>原图</figcaption><img id="dialog-original" alt="原图"></figure>
-        <figure><figcaption>效果</figcaption><img id="dialog-result" alt="风格效果"></figure>
+        <figure><figcaption id="dialog-result-label">效果</figcaption><img id="dialog-result" alt="风格效果"></figure>
       </div>
     </div>
   </dialog>

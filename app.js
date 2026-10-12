@@ -15,11 +15,9 @@
   ];
 
   const MODES = [
+    { id: 'strength', name: '强度大小' },
+    { id: 'style', name: '风格大小' },
     { id: 'radius', name: '圆圈大小' },
-    { id: 'side', name: '圈内 / 圈外' },
-    { id: 'style', name: '风格类型' },
-    { id: 'strength', name: '风格强度' },
-    { id: 'source', name: '选择图片' },
     { id: 'works', name: '查看作品' }
   ];
 
@@ -29,8 +27,9 @@
   const MAX_WORKS = 24;
 
   const state = {
-    mode: 'radius',
+    mode: 'style',
     maskSide: 'inside',
+    creativeDisplay: false,
     view: 'effect',
     radiusTarget: 0.25,
     radius: 0.25,
@@ -45,12 +44,22 @@
     styleB: 0,
     styleBlend: 0,
     styleBlendTarget: 0,
-    styleRotation: 0,
-    styleRotationTarget: 0,
     sourceIndex: 0,
     dialAngle: 0,
     dialAngleTarget: 0,
     workBrowseIndex: 0
+  };
+
+  const hardware = {
+    port: null,
+    reader: null,
+    reading: false,
+    connected: false,
+    connecting: false,
+    simulated: false,
+    mode: 'normal',
+    lastEvent: '等待输入',
+    lastEventAt: null
   };
 
   const elements = {
@@ -58,7 +67,6 @@
     stageStack: document.getElementById('stage-stack'),
     originalPreview: document.getElementById('original-preview'),
     maskRing: document.getElementById('mask-ring'),
-    styleRotor: document.getElementById('style-rotor'),
     styleName: document.getElementById('style-name'),
     styleTagline: document.getElementById('style-tagline'),
     maskStatus: document.getElementById('mask-status'),
@@ -67,6 +75,13 @@
     modeValue: document.getElementById('mode-value'),
     dial: document.getElementById('dial'),
     functionGrid: document.getElementById('function-grid'),
+    machinePanel: document.querySelector('.machine-panel'),
+    homeworkMode: document.getElementById('homework-mode'),
+    hardwareChip: document.getElementById('hardware-chip'),
+    hardwareModule: document.querySelector('.hardware-module'),
+    hardwareStateLine: document.getElementById('hardware-state-line'),
+    hardwareEvent: document.getElementById('hardware-event'),
+    hardwareConnect: document.getElementById('hardware-connect'),
     sourceSurface: document.getElementById('source-surface'),
     sourceEmpty: document.querySelector('.source-empty'),
     sourceCount: document.getElementById('source-count'),
@@ -76,14 +91,6 @@
     worksLabel: document.getElementById('works-label'),
     uploadButton: document.getElementById('upload-button'),
     fileInput: document.getElementById('file-input'),
-    saveButton: document.getElementById('save-button'),
-    aiServiceChip: document.getElementById('ai-service-chip'),
-    aiModeBadge: document.getElementById('ai-mode-badge'),
-    aiSummary: document.getElementById('ai-summary'),
-    aiStatus: document.getElementById('ai-status'),
-    aiFlow: document.getElementById('ai-flow'),
-    aiButton: document.getElementById('generate-button'),
-    inspirationInput: document.getElementById('inspiration-input'),
     aiResultLayer: document.getElementById('ai-result-layer'),
     aiResultImage: document.getElementById('ai-result-image'),
     aiResultBadge: document.getElementById('ai-result-badge'),
@@ -94,7 +101,10 @@
     dialogOriginal: document.getElementById('dialog-original'),
     dialogResult: document.getElementById('dialog-result'),
     dialogDownload: document.getElementById('dialog-download'),
-    dialogClose: document.getElementById('dialog-close')
+    dialogSave: document.getElementById('dialog-save'),
+    dialogCreative: document.getElementById('dialog-creative'),
+    dialogClose: document.getElementById('dialog-close'),
+    dialogResultLabel: document.getElementById('dialog-result-label')
   };
 
   const sources = [];
@@ -107,7 +117,9 @@
     current: null
   };
   let toastTimer = 0;
-  let styleNodes = [];
+  let dialogContext = { work: null, saved: false };
+  const savedEffectSignatures = new Set();
+  const pendingSaveSignatures = new Set();
 
   function showTap(message) {
     elements.toast.textContent = message;
@@ -676,32 +688,7 @@
     showTap('WebGL 初始化失败，请使用 Chrome / Edge / Safari 最新版本');
   }
 
-  /* ---------------- Style wheel ---------------- */
-
-  function buildStyleWheel() {
-    elements.styleRotor.innerHTML = '';
-    styleNodes = STYLES.map((style, index) => {
-      const node = document.createElement('div');
-      node.className = 'style-node';
-      node.innerHTML = `<strong>${style.name}</strong>`;
-      node.title = style.tagline;
-      node.dataset.index = String(index);
-      elements.styleRotor.append(node);
-      return node;
-    });
-  }
-
-  function updateStyleWheel() {
-    const wheel = elements.styleRotor.parentElement;
-    const radius = Math.max(96, wheel.clientWidth / 2 - 46);
-    styleNodes.forEach((node, index) => {
-      const angle = ((index * 36 + state.styleRotation) % 360) * Math.PI / 180;
-      const x = Math.sin(angle) * radius;
-      const y = -Math.cos(angle) * radius;
-      node.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px) rotate(${(state.styleRotation * 0.08).toFixed(2)}deg)`;
-      node.classList.toggle('current', index === state.styleIndex);
-    });
-  }
+  /* ---------------- Style switching ---------------- */
 
   function changeStyle(delta) {
     const previous = state.styleIndex;
@@ -714,7 +701,6 @@
     state.styleIndex = next;
     state.styleB = next;
     state.styleBlendTarget = 1;
-    state.styleRotationTarget += shortestDelta(previous, next, STYLES.length) * 36;
     const style = STYLES[next];
     elements.styleName.textContent = style.name;
     elements.styleTagline.textContent = style.tagline;
@@ -1034,11 +1020,6 @@
     aiPipeline.checking = false;
     aiPipeline.available = Boolean(available);
     aiPipeline.configured = Boolean(configured);
-    const label = aiPipeline.configured ? 'AI READY' : '本地演示';
-    elements.aiServiceChip.textContent = label;
-    elements.aiServiceChip.classList.toggle('active', aiPipeline.configured);
-    elements.aiModeBadge.textContent = aiPipeline.configured ? '真实模型' : '本地演示';
-    elements.aiModeBadge.className = aiPipeline.configured ? 'ready' : 'demo';
     updateAiUi();
   }
 
@@ -1053,12 +1034,337 @@
     }
   }
 
+
+  /* ---------------- EasyInput hardware bridge ----------------
+     The browser side intentionally accepts two tiny line protocols so a
+     course firmware only needs to print events; it does not need to implement
+     the web application protocol. JSON Lines:
+       {"type":"encoder","delta":1}
+       {"type":"button","key":"S1","action":"down"}
+     Text lines:
+       ENC+ / ENC- / ENC_PRESS / S1_DOWN
+     Mouse-wheel input is only a local fallback and never counts as hardware
+     evidence in the assignment recording.
+  ---------------------------------------------------------------- */
+
+  function hardwareModeLabel() {
+    return {
+      normal: '普通创作 · 旋钮选择风格',
+      'strength-adjust': '强度调整 · 旋钮微调',
+      'strength-confirming': '强度已确认 · 正在生成',
+      'result-preview': '成片预览 · 原图 / 效果并排对比',
+      'creative-display': '创意显示 · 旋钮调整窗口'
+    }[hardware.mode] || hardware.mode;
+  }
+
+  function updateHardwareUi() {
+    const stateName = hardware.connecting ? 'connecting' : hardware.connected ? 'connected' : 'disconnected';
+    elements.hardwareModule.dataset.state = stateName;
+    elements.hardwareChip.textContent = hardware.connecting ? '硬件连接中' : hardware.connected ? '硬件已连接' : '硬件未连接';
+    elements.hardwareChip.classList.toggle('active', hardware.connected);
+    elements.hardwareConnect.textContent = hardware.connected ? '断开设备' : '连接设备';
+    elements.hardwareConnect.disabled = hardware.connecting;
+    elements.hardwareStateLine.textContent = hardware.connecting
+      ? '正在请求串口权限…'
+      : hardware.connected
+        ? '串口已连接 · 等待实体事件'
+        : '未连接 · 鼠标滚轮可用';
+    elements.hardwareEvent.textContent = hardware.lastEvent;
+    elements.homeworkMode.textContent = hardwareModeLabel();
+  }
+
+  function setHardwareMode(mode) {
+    hardware.mode = mode;
+    updateHardwareUi();
+  }
+
+  function recordHardwareEvent(text, simulated = false) {
+    hardware.simulated = simulated && !hardware.connected;
+    hardware.lastEvent = simulated ? `本地回放 · ${text}` : text;
+    hardware.lastEventAt = new Date();
+    updateHardwareUi();
+  }
+
+  function dispatchHardwareEvent(event, options = {}) {
+    if (event.type === 'encoder') {
+      const delta = Math.sign(Number(event.delta) || 0);
+      if (!delta) return;
+      recordHardwareEvent(`ENC ${delta > 0 ? '+' : '-'}`, options.simulated);
+      handleHardwareEncoder(delta);
+      return;
+    }
+    if (event.type === 'encoder-press') {
+      recordHardwareEvent('ENC PRESS', options.simulated);
+      handleHardwareEncoderPress();
+      return;
+    }
+    if (event.type === 'button') {
+      const key = String(event.key || '').toUpperCase();
+      if (!/^S[1-8]$/.test(key)) return;
+      if (event.action && event.action !== 'down') return;
+      recordHardwareEvent(`${key} DOWN`, options.simulated);
+      handleHardwareButton(key);
+    }
+  }
+
+  function parseHardwareLine(rawLine) {
+    const line = rawLine.trim();
+    if (!line) return null;
+    if (line.startsWith('{')) {
+      try {
+        const payload = JSON.parse(line);
+        const type = String(payload.type || payload.event || '').toLowerCase();
+        if (type.includes('encoder')) {
+          if (type.includes('press')) return { type: 'encoder-press' };
+          const delta = Number(payload.delta ?? payload.value ?? payload.direction);
+          if (delta) return { type: 'encoder', delta };
+        }
+        const rawKey = String(payload.key ?? payload.button ?? '').toUpperCase().replace(/^KEY/, '');
+        const action = String(payload.action ?? payload.state ?? 'down').toLowerCase();
+        const numericMatch = rawKey.match(/^([1-8])$/);
+        const key = numericMatch ? `S${numericMatch[1]}` : rawKey;
+        if (/^S[1-8]$/.test(key)) {
+          return { type: 'button', key, action: action.includes('up') ? 'up' : 'down' };
+        }
+        if (key === 'ENCODER' || key === 'ENC') return { type: 'encoder-press' };
+      } catch {
+        return null;
+      }
+      return null;
+    }
+
+    if (/^(?:ENC|ENCODER|KNOB|ROT)\+$/.test(line)) return { type: 'encoder', delta: 1 };
+    if (/^(?:ENC|ENCODER|KNOB|ROT)-$/.test(line)) return { type: 'encoder', delta: -1 };
+    if (/^(?:ENC|ENCODER|KNOB|ROT)[_ ]?PRESS$/.test(line)) return { type: 'encoder-press' };
+    const button = line.match(/^(?:S|KEY)?([1-8])(?:[_ ](?:DOWN|PRESS|PRESSED))?$/i);
+    if (button) return { type: 'button', key: `S${button[1]}`, action: 'down' };
+    return null;
+  }
+
+  async function readHardwarePort() {
+    const decoder = new TextDecoder();
+    let buffer = '';
+    hardware.reading = true;
+    try {
+      while (hardware.reading && hardware.port?.readable) {
+        hardware.reader = hardware.port.readable.getReader();
+        try {
+          for (;;) {
+            const { value, done } = await hardware.reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              const event = parseHardwareLine(line);
+              if (event) dispatchHardwareEvent(event);
+            }
+          }
+        } finally {
+          hardware.reader.releaseLock();
+          hardware.reader = null;
+        }
+      }
+    } catch (error) {
+      if (hardware.connected) {
+        hardware.lastEvent = `串口读取失败：${error.message || error}`;
+        updateHardwareUi();
+      }
+    } finally {
+      hardware.reading = false;
+    }
+  }
+
+  async function connectHardware() {
+    if (hardware.connected) {
+      hardware.reading = false;
+      try { await hardware.reader?.cancel(); } catch { /* already closed */ }
+      try { await hardware.port?.close(); } catch { /* already closed */ }
+      hardware.port = null;
+      hardware.connected = false;
+      hardware.lastEvent = '串口已断开';
+      setHardwareMode('normal');
+      return;
+    }
+    if (!('serial' in navigator)) {
+      hardware.lastEvent = '当前浏览器不支持 Web Serial，请使用 Chrome / Edge';
+      elements.hardwareModule.dataset.state = 'error';
+      updateHardwareUi();
+      showTap('请用桌面版 Chrome / Edge 连接开发板');
+      return;
+    }
+    try {
+      hardware.connecting = true;
+      updateHardwareUi();
+      const port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 115200, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
+      hardware.port = port;
+      hardware.connected = true;
+      hardware.lastEvent = '串口已打开 · 115200 baud';
+      updateHardwareUi();
+      void readHardwarePort();
+      showTap('EasyInput 已连接；请转动旋钮或按 S 键');
+    } catch (error) {
+      hardware.lastEvent = `连接失败：${error.message || error}`;
+      elements.hardwareModule.dataset.state = 'error';
+      showTap('开发板连接取消或失败');
+    } finally {
+      hardware.connecting = false;
+      updateHardwareUi();
+    }
+  }
+
+  function handleHardwareEncoder(delta) {
+    if (aiPipeline.generating) return;
+    if (elements.workDialog.open && state.mode === 'works') {
+      browseWorks(delta);
+      return;
+    }
+    switch (state.mode) {
+      case 'strength':
+        state.strengthTarget = clamp(state.strengthTarget + delta * 0.05, 0, 1);
+        break;
+      case 'radius':
+        state.radiusTarget = clamp(state.radiusTarget + delta * 0.035, 0, MAX_RADIUS);
+        break;
+      case 'style':
+        changeStyle(delta);
+        break;
+      case 'works':
+        browseWorks(delta);
+        break;
+      default:
+        changeStyle(delta);
+        break;
+    }
+    updateUi();
+  }
+
+  function confirmStrengthAndGenerate() {
+    setHardwareMode('strength-confirming');
+    setMode('strength');
+    showTap(`强度已确认 ${Math.round(state.strengthTarget * 100)}%，开始生成`);
+    void generateAiPrint();
+  }
+
+  function handleHardwareEncoderPress() {
+    if (aiPipeline.generating) return;
+    if (state.mode === 'strength') {
+      confirmStrengthAndGenerate();
+    } else if (state.creativeDisplay || state.mode === 'radius') {
+      showTap('创意窗口已确认，可按 3 / S3 保存');
+      setHardwareMode('normal');
+      setMode('style');
+    } else {
+      setHardwareMode('strength-adjust');
+      setMode('strength');
+      showTap('强度模式：旋钮调整，旋钮按下确认生成');
+    }
+  }
+
+  function flashComparison() {
+    elements.workDialog.classList.remove('compare-pulse');
+    void elements.workDialog.offsetWidth;
+    elements.workDialog.classList.add('compare-pulse');
+  }
+
+  function resetEffectToOriginal() {
+    clearStaleAiResult();
+    state.strengthTarget = 0;
+    state.strength = 0;
+    setView('effect');
+    updateUi();
+    showTap('效果图已重置为原图');
+  }
+
+  function runInputCommand(command) {
+    if (aiPipeline.generating && command !== 'works' && command !== 'compare' && command !== 'original') return;
+    switch (command) {
+      case 'strength':
+        setCreativeDisplay(false);
+        setHardwareMode('strength-adjust');
+        setMode('strength');
+        showTap('1 / S1：旋钮调整强度');
+        break;
+      case 'compare':
+        setView(state.view === 'compare' ? 'effect' : 'compare');
+        if (elements.workDialog.open) flashComparison();
+        break;
+      case 'save':
+        if (elements.workDialog.open && dialogContext.work && !dialogContext.saved) {
+          void saveWork({ work: dialogContext.work });
+        } else {
+          void saveWork();
+        }
+        break;
+      case 'works':
+        if (elements.workDialog.open) {
+          elements.workDialog.close();
+          setCreativeDisplay(false);
+          setView('effect');
+          setMode('style');
+          showTap('已回到工作台');
+        } else {
+          setCreativeDisplay(false);
+          setHardwareMode('normal');
+          setMode('works');
+        }
+        break;
+      case 'original':
+        setView(state.view === 'original' ? 'effect' : 'original');
+        break;
+      case 'style':
+        setCreativeDisplay(false);
+        setHardwareMode('normal');
+        setMode('style');
+        showTap('6 / S6：旋钮切换风格');
+        break;
+      case 'reset':
+        resetEffectToOriginal();
+        break;
+      case 'radius':
+        setCreativeDisplay(true);
+        setMode('radius');
+        showTap('8 / S8：旋钮调圆圈，按住圆心拖动');
+        break;
+      default:
+        break;
+    }
+  }
+
+  function handleHardwareButton(key) {
+    const command = {
+      S1: 'strength',
+      S2: 'compare',
+      S3: 'save',
+      S4: 'works',
+      S5: 'original',
+      S6: 'style',
+      S7: 'reset',
+      S8: 'radius'
+    }[key];
+    if (command) runInputCommand(command);
+  }
+
+  function installHardwareBridge() {
+    elements.hardwareConnect.addEventListener('click', () => void connectHardware());
+    navigator.serial?.addEventListener?.('disconnect', event => {
+      if (event.target !== hardware.port) return;
+      hardware.reading = false;
+      hardware.port = null;
+      hardware.connected = false;
+      hardware.lastEvent = '设备已拔出';
+      setHardwareMode('normal');
+    });
+    updateHardwareUi();
+  }
+
   function currentAiResult() {
     const source = sources[state.sourceIndex];
     const style = STYLES[state.styleIndex];
     const current = aiPipeline.current;
     if (!source || !current) return null;
-    const note = elements.inspirationInput.value.trim();
+    const note = '';
     const valid = current.sourceId === source.id
       && current.styleId === style.id
       && current.strengthBucket === Math.round(state.strengthTarget * 20)
@@ -1087,28 +1393,11 @@
   }
 
   function updateAiUi() {
-    const style = STYLES[state.styleIndex];
-    const strength = Math.round(state.strengthTarget * 100);
-    elements.aiSummary.textContent = `${style.name} · 强度 ${strength}% · ${aiPipeline.configured ? '真实 AI 模型' : '本地演示模式'}`;
-    elements.aiFlow.dataset.state = aiPipeline.generating ? 'generating' : currentAiResult() ? 'finished' : 'ready';
-    elements.aiButton.disabled = aiPipeline.generating || aiPipeline.checking || !sources.length;
-    elements.aiButton.textContent = aiPipeline.generating ? '生成中…' : '生成 AI 成片';
-
-    if (!currentAiResult() && (aiPipeline.current || elements.aiResultLayer.classList.contains('show'))) clearStaleAiResult();
-    if (aiPipeline.generating) {
-      elements.aiStatus.textContent = '任务已冻结：素材、风格、强度与补充灵感保持一致';
-      elements.aiStatus.className = 'ai-status';
-    } else if (!sources.length) {
-      elements.aiStatus.textContent = '请先导入一张肖像';
-      elements.aiStatus.className = 'ai-status';
-    } else if (currentAiResult()) {
-      const result = currentAiResult();
-      const engineText = result.engine === 'image-api' ? `AI 模型 ${result.model || ''}`.trim() : '当前 WebGL 效果';
-      elements.aiStatus.textContent = `已出片 · ${engineText} · 可保存到下方`;
-      elements.aiStatus.className = 'ai-status success';
-    } else if (elements.aiStatus.className !== 'ai-status error') {
-      elements.aiStatus.textContent = aiPipeline.configured ? '等待真实 AI 出片' : '未配置 API Key，将生成明确标注的本地演示成片';
-      elements.aiStatus.className = 'ai-status';
+    // The AI pipeline is intentionally headless in this workbench UI. Keep only
+    // the result layer in sync so stale generated prints cannot be mistaken for
+    // the currently selected source, style, and strength.
+    if (!currentAiResult() && (aiPipeline.current || elements.aiResultLayer.classList.contains('show'))) {
+      clearStaleAiResult();
     }
   }
 
@@ -1121,7 +1410,7 @@
     }
 
     const style = STYLES[state.styleIndex];
-    const note = elements.inspirationInput.value.trim();
+    const note = '';
     // Freeze all generation inputs before any asynchronous work starts.
     const ticket = {
       sourceId: source.id,
@@ -1143,15 +1432,17 @@
         // Canvas has just been rendered by canvasToUrl(); keep this demo as a
         // self-contained data URL so it remains valid even after work pruning.
         const resultUrl = elements.canvas.toDataURL('image/png');
-        installAiResult({
+        const localResult = {
           ...ticket,
           resultUrl,
           resultIsObjectUrl: false,
           engine: 'local-preview',
           model: 'WebGL classic filters',
           createdAt: new Date()
-        });
-        showTap('本地演示成片已生成');
+        };
+        installAiResult(localResult);
+        openGeneratedPreview(localResult);
+        showTap('本地演示成片已生成并自动放大');
         return;
       }
 
@@ -1173,7 +1464,7 @@
       if (!response.ok || !payload?.dataUrl) {
         throw new Error(payload?.error || `生成失败 (${response.status})`);
       }
-      installAiResult({
+      const aiResult = {
         ...ticket,
         resultUrl: payload.dataUrl,
         resultIsObjectUrl: false,
@@ -1181,17 +1472,19 @@
         model: payload.model || 'image-api',
         prompt: payload.prompt || '',
         createdAt: new Date()
-      });
-      showTap('AI 成片已生成');
+      };
+      installAiResult(aiResult);
+      openGeneratedPreview(aiResult);
+      showTap('AI 成片已生成并自动放大');
     } catch (error) {
       console.error(error);
-      elements.aiStatus.textContent = error.name === 'AbortError'
-        ? '生成超时；为避免重复消耗，不会自动重试'
-        : `生成失败：${error.message || '未知错误'}；不会自动重试`;
-      elements.aiStatus.className = 'ai-status error';
-      showTap('AI 生成失败，不会自动重试');
+      const message = error.name === 'AbortError' ? '生成超时；不会自动重试' : `生成失败：${error.message || '未知错误'}`;
+      showTap(`${message}；不会自动重试`);
+      if (hardware.mode === 'strength-confirming') setHardwareMode('normal');
     } finally {
       aiPipeline.generating = false;
+      if (hardware.mode === 'strength-confirming' && currentAiResult()) setHardwareMode('result-preview');
+      else if (hardware.mode === 'strength-confirming') setHardwareMode('normal');
       updateAiUi();
     }
   }
@@ -1229,32 +1522,62 @@
     });
   }
 
-  async function saveWork() {
-    if (!sources.length || !renderer) {
-      showTap('请先导入一张肖像');
-      return;
-    }
+
+  function effectSignature(explicitResult = null) {
     const source = sources[state.sourceIndex];
-    const aiResult = currentAiResult();
-    const resultUrl = aiResult?.resultUrl || await canvasToUrl();
-    const style = STYLES[state.styleIndex];
-    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const work = {
-      id,
-      sourceUrl: source.dataUrl,
-      sourceName: source.name,
-      resultUrl,
-      style,
-      strength: Math.round(state.strength * 100),
-      radius: Math.round(state.radius * 100),
-      maskSide: state.maskSide,
-      engine: aiResult?.engine || 'local-preview',
-      model: aiResult?.model || 'WebGL classic filters',
-      inspiration: aiResult?.note || '',
-      generatedAt: aiResult?.createdAt || null,
-      resultIsObjectUrl: aiResult ? Boolean(aiResult.resultIsObjectUrl) : true,
-      createdAt: new Date()
-    };
+    if (!source) return 'no-source';
+    const aiResult = explicitResult || (!state.creativeDisplay ? currentAiResult() : null);
+    if (aiResult) {
+      return [
+        'ai',
+        aiResult.sourceId,
+        aiResult.styleId,
+        aiResult.createdAt?.getTime?.() || aiResult.createdAt || '',
+        aiResult.engine,
+        aiResult.model || '',
+        aiResult.resultUrl?.length || 0
+      ].join(':');
+    }
+    return [
+      state.creativeDisplay ? 'creative' : 'local',
+      source.id,
+      state.styleIndex,
+      Math.round(state.strengthTarget * 1000),
+      Math.round(state.radiusTarget * 1000),
+      Math.round(state.centerXTarget * 1000),
+      Math.round(state.centerYTarget * 1000),
+      state.maskSide
+    ].join(':');
+  }
+
+  function workSignature(work) {
+    if (!work) return '';
+    if (work.signature) return work.signature;
+    return [
+      work.engine,
+      work.model || '',
+      work.sourceUrl,
+      work.style?.id || '',
+      work.strength,
+      work.radius,
+      work.maskSide,
+      work.generatedAt?.getTime?.() || work.generatedAt || '',
+      work.resultUrl?.length || 0
+    ].join(':');
+  }
+
+  function updateSaveUi() {
+    const commandButton = elements.functionGrid.querySelector('[data-command="save"]');
+    if (commandButton) commandButton.disabled = savedEffectSignatures.has(effectSignature()) || pendingSaveSignatures.has(effectSignature());
+    if (dialogContext.work) {
+      const signature = workSignature(dialogContext.work);
+      const saved = dialogContext.saved || savedEffectSignatures.has(signature);
+      elements.dialogSave.textContent = saved ? '已保存' : '3 保存效果图';
+      elements.dialogSave.disabled = saved || pendingSaveSignatures.has(signature);
+    }
+  }
+
+  function appendWork(work) {
     works.push(work);
     if (works.length > MAX_WORKS) {
       const removed = works.shift();
@@ -1265,11 +1588,12 @@
     element.type = 'button';
     element.className = 'work-card';
     element.style.setProperty('--tilt', `${(Math.random() - 0.5) * 8}deg`);
+    const engineLabel = work.engine === 'image-api' ? 'AI' : work.engine === 'creative-display' ? '创意' : '本地';
     element.innerHTML = `
-      <img alt="${style.name}成片">
-      <span class="work-meta"><strong>${style.name}</strong><span>${aiResult?.engine === 'image-api' ? 'AI' : '本地'} · ${Math.round(state.strength * 100)}%</span></span>
+      <img alt="${work.style.name}成片">
+      <span class="work-meta"><strong>${work.style.name}</strong><span>${engineLabel} · ${work.strength}%</span></span>
     `;
-    element.querySelector('img').src = resultUrl;
+    element.querySelector('img').src = work.resultUrl;
     element.addEventListener('click', () => openWorkDialog(work));
     elements.worksSurface.append(element);
     while (elements.worksSurface.querySelectorAll('.work-card').length > MAX_WORKS) {
@@ -1277,20 +1601,121 @@
     }
     state.workBrowseIndex = Math.max(0, works.length - 1);
     updateCounts();
-    showTap('已保存到下方工作台');
+    updateSaveUi();
+    return work;
+  }
+
+  async function saveWork(options = {}) {
+    if (!sources.length || !renderer) {
+      showTap('请先导入一张肖像');
+      return null;
+    }
+
+    const signature = options.work?.signature || effectSignature();
+    if (pendingSaveSignatures.has(signature)) {
+      showTap('这张效果图正在保存');
+      return null;
+    }
+    if (savedEffectSignatures.has(signature)) {
+      showTap('这张效果图已保存；生成或调整出新效果后可再保存');
+      updateSaveUi();
+      return null;
+    }
+
+    pendingSaveSignatures.add(signature);
+    updateSaveUi();
+    let work = options.work;
+    if (work) {
+      work = {
+        ...work,
+        signature,
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        createdAt: new Date(),
+        resultIsObjectUrl: Boolean(work.resultIsObjectUrl)
+      };
+    } else {
+      const source = sources[state.sourceIndex];
+      const aiResult = state.creativeDisplay ? null : currentAiResult();
+      const resultUrl = aiResult?.resultUrl || await canvasToUrl();
+      const style = STYLES[state.styleIndex];
+      work = {
+        signature,
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        sourceUrl: source.dataUrl,
+        sourceName: source.name,
+        resultUrl,
+        style,
+        strength: Math.round(state.strength * 100),
+        radius: Math.round(state.radius * 100),
+        maskSide: state.maskSide,
+        engine: options.engine || aiResult?.engine || 'local-preview',
+        model: options.model || aiResult?.model || 'WebGL classic filters',
+        inspiration: aiResult?.note || '',
+        generatedAt: aiResult?.createdAt || null,
+        resultIsObjectUrl: aiResult ? Boolean(aiResult.resultIsObjectUrl) : true,
+        createdAt: new Date()
+      };
+    }
+
+    try {
+      appendWork(work);
+      savedEffectSignatures.add(signature);
+      if (dialogContext.work && workSignature(dialogContext.work) === signature) {
+        dialogContext.saved = true;
+      }
+      showTap(work.engine === 'creative-display' ? '创意显示结果已保存' : '已保存到下方工作台');
+      return work;
+    } finally {
+      pendingSaveSignatures.delete(signature);
+      updateSaveUi();
+    }
+  }
+
+  function workEngineText(work) {
+    if (work.engine === 'image-api') return `AI(${work.model})`;
+    if (work.engine === 'creative-display') return '创意显示 · 本地 WebGL';
+    return '本地演示 · 非真实 AI 生成';
   }
 
   function openWorkDialog(work) {
     const index = works.indexOf(work);
-    if (index >= 0) state.workBrowseIndex = index;
-    const position = state.workBrowseIndex + 1;
+    const saved = index >= 0;
+    if (saved) state.workBrowseIndex = index;
+    dialogContext = { work, saved };
+    const position = saved ? `${index + 1} / ${works.length}` : '未保存预览';
     elements.dialogTitle.textContent = work.style.name;
-    elements.dialogMeta.textContent = `${position} / ${works.length} · ${work.style.tagline} · 强度 ${work.strength}% · ${work.engine === 'image-api' ? `AI(${work.model})` : '本地滤镜'}`;
+    elements.dialogMeta.textContent = `${position} · ${work.style.tagline} · 强度 ${work.strength}% · ${workEngineText(work)}`;
     elements.dialogOriginal.src = work.sourceUrl;
     elements.dialogResult.src = work.resultUrl;
+    elements.dialogResultLabel.textContent = work.engine === 'image-api' ? 'AI 效果' : work.engine === 'creative-display' ? '创意显示' : '本地演示效果';
     elements.dialogDownload.href = work.resultUrl;
     elements.dialogDownload.download = `stylecam-${work.style.id}-${work.strength}.png`;
+    elements.dialogSave.textContent = saved ? '已保存' : '3 保存效果图';
+    elements.dialogSave.disabled = saved || savedEffectSignatures.has(workSignature(work));
     if (!elements.workDialog.open) elements.workDialog.showModal();
+  }
+
+  function openGeneratedPreview(result) {
+    const source = sources.find(item => item.id === result.sourceId) || sources[state.sourceIndex];
+    if (!source) return;
+    const style = STYLES.find(item => item.id === result.styleId) || STYLES[state.styleIndex];
+    openWorkDialog({
+      sourceUrl: source.dataUrl,
+      sourceName: source.name,
+      resultUrl: result.resultUrl,
+      style,
+      strength: result.strength ?? Math.round(state.strengthTarget * 100),
+      radius: Math.round(state.radius * 100),
+      maskSide: state.maskSide,
+      engine: result.engine,
+      model: result.model || 'WebGL classic filters',
+      inspiration: result.note || '',
+      generatedAt: result.createdAt || null,
+      resultIsObjectUrl: Boolean(result.resultIsObjectUrl),
+      signature: effectSignature(result),
+      createdAt: new Date()
+    });
+    setHardwareMode('result-preview');
   }
 
   function browseWorks(delta = 0) {
@@ -1312,6 +1737,27 @@
   }
 
   /* ---------------- Controls ---------------- */
+
+  function setCreativeDisplay(active) {
+    const next = Boolean(active);
+    if (state.creativeDisplay === next) {
+      updateHardwareUi();
+      return;
+    }
+    state.creativeDisplay = next;
+    if (next) {
+      if (elements.workDialog.open) elements.workDialog.close();
+      elements.machinePanel.classList.add('creative');
+      setView('effect');
+      setMode('radius');
+      setHardwareMode('creative-display');
+      showTap('创意显示：旋钮调窗口，按住圆心拖动，3 / S3 保存');
+    } else {
+      elements.machinePanel.classList.remove('creative');
+      setHardwareMode('normal');
+    }
+    updateHardwareUi();
+  }
 
   function setMode(mode) {
     state.mode = mode;
@@ -1350,9 +1796,6 @@
 
   function setView(view) {
     state.view = view;
-    document.querySelectorAll('.view-button').forEach(button => {
-      button.classList.toggle('active', button.dataset.view === view);
-    });
     elements.stageStack.classList.toggle('comparing', view === 'compare');
     elements.stageStack.closest('.machine-panel')?.classList.toggle('comparing', view === 'compare');
   }
@@ -1390,6 +1833,7 @@
     const sideText = zero ? '圆圈外 · 全图' : fullCover ? '圆圈内 · 全图' : `${state.maskSide === 'inside' ? '圆圈内' : '圆圈外'} · ${Math.round(state.radius * 100)}%`;
     elements.maskStatus.textContent = sideText;
     elements.strengthStatus.textContent = `强度 ${Math.round(state.strength * 100)}%`;
+    updateSaveUi();
     updateAiUi();
   }
 
@@ -1466,6 +1910,7 @@
     let dragging = false;
     let previousAngle = 0;
     let accumulated = 0;
+    let rotated = false;
     const angleFromEvent = event => {
       const rect = dial.getBoundingClientRect();
       return Math.atan2(event.clientY - (rect.top + rect.height / 2), event.clientX - (rect.left + rect.width / 2)) * 180 / Math.PI;
@@ -1474,6 +1919,7 @@
       event.preventDefault();
       dragging = true;
       accumulated = 0;
+      rotated = false;
       previousAngle = angleFromEvent(event);
       dial.setPointerCapture(event.pointerId);
     });
@@ -1485,34 +1931,42 @@
       if (delta < -180) delta += 360;
       previousAngle = angle;
       accumulated += delta;
+      if (Math.abs(accumulated) >= 8) rotated = true;
       while (Math.abs(accumulated) >= 15) {
         const direction = accumulated > 0 ? 1 : -1;
         adjust(direction);
         accumulated -= direction * 15;
       }
     });
-    const end = () => { dragging = false; };
+    const end = (event) => {
+      if (!dragging) return;
+      dragging = false;
+      // A click without rotation is the on-screen equivalent of the encoder
+      // press. It invokes the same application action without recording a
+      // hardware event, so it cannot be mistaken for real EasyInput evidence.
+      if (!rotated && event.type === 'pointerup') handleHardwareEncoderPress();
+    };
     dial.addEventListener('pointerup', end);
     dial.addEventListener('pointercancel', end);
   }
 
   function installInputs() {
     elements.functionGrid.addEventListener('click', event => {
-      const button = event.target.closest('.function-button');
-      if (button) setMode(button.dataset.mode);
-    });
-    document.querySelectorAll('.view-button').forEach(button => {
-      button.addEventListener('click', () => setView(button.dataset.view));
+      const button = event.target.closest('.function-button[data-command]');
+      if (!button || button.disabled) return;
+      runInputCommand(button.dataset.command);
     });
     elements.uploadButton.addEventListener('click', () => elements.fileInput.click());
     elements.fileInput.addEventListener('change', () => {
       void importFiles(elements.fileInput.files);
       elements.fileInput.value = '';
     });
-    elements.saveButton.addEventListener('click', () => void saveWork());
-    elements.aiButton.addEventListener('click', () => void generateAiPrint());
-    elements.inspirationInput.addEventListener('input', updateAiUi);
     elements.dialogClose.addEventListener('click', () => elements.workDialog.close());
+    elements.workDialog.addEventListener('close', () => {
+      if (!state.creativeDisplay) setHardwareMode('normal');
+    });
+    elements.dialogSave.addEventListener('click', () => runInputCommand('save'));
+    elements.dialogCreative.addEventListener('click', () => setCreativeDisplay(true));
 
     window.addEventListener('dragover', event => event.preventDefault());
     window.addEventListener('drop', event => {
@@ -1523,15 +1977,13 @@
     window.addEventListener('wheel', event => {
       const direction = event.deltaY < 0 ? 1 : -1;
       if (elements.workDialog.open) {
-        event.preventDefault();
-        if (state.mode !== 'works') {
-          state.mode = 'works';
-          elements.functionGrid.querySelectorAll('.function-button').forEach(button => {
-            button.classList.toggle('active', button.dataset.mode === 'works');
-          });
-          elements.modeName.textContent = '查看作品';
+        if (!dialogContext.saved) {
+          event.preventDefault();
+          return;
         }
-        browseWorks(direction);
+        event.preventDefault();
+        if (state.mode !== 'works') setMode('works');
+        else browseWorks(direction);
         return;
       }
       if (event.target.closest?.('#work-dialog')) return;
@@ -1540,22 +1992,30 @@
     }, { passive: false });
 
     window.addEventListener('keydown', event => {
+      const tag = event.target.tagName?.toLowerCase();
+      const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || event.target.isContentEditable;
+      const commands = ['strength', 'compare', 'save', 'works', 'original', 'style', 'reset', 'radius'];
       if (elements.workDialog.open) {
         if (event.key === 'Escape') {
           elements.workDialog.close();
+        } else if (!typing && event.key >= '1' && event.key <= '8') {
+          event.preventDefault();
+          runInputCommand(commands[Number(event.key) - 1]);
         } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+          if (!dialogContext.saved) return;
           event.preventDefault();
           browseWorks(-1);
         } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+          if (!dialogContext.saved) return;
           event.preventDefault();
           browseWorks(1);
         }
         return;
       }
-      const tag = event.target.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || event.target.isContentEditable) return;
-      if (event.key >= '1' && event.key <= '6') {
-        setMode(MODES[Number(event.key) - 1].id);
+      if (typing) return;
+      if (event.key >= '1' && event.key <= '8') {
+        event.preventDefault();
+        runInputCommand(commands[Number(event.key) - 1]);
         return;
       }
       if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
@@ -1595,10 +2055,8 @@
       state.styleBlend = 0;
       state.styleBlendTarget = 0;
     }
-    state.styleRotation = ease(state.styleRotation, state.styleRotationTarget, dt, 105);
     state.dialAngle = ease(state.dialAngle, state.dialAngleTarget, dt, 82);
 
-    if (Math.abs(state.styleRotationTarget - state.styleRotation) < 0.08) state.styleRotation = state.styleRotationTarget;
     elements.dial.style.transform = `rotate(${state.dialAngle.toFixed(2)}deg)`;
 
     renderer?.render({
@@ -1613,7 +2071,6 @@
       view: state.view
     });
 
-    updateStyleWheel();
     updateMaskRing();
     updateUi();
     updateSourcePhysics(dt);
@@ -1621,11 +2078,11 @@
   }
 
   async function init() {
-    buildStyleWheel();
     installInputs();
+    installHardwareBridge();
     installStageDrag();
     installDialDrag();
-    setMode('radius');
+    setMode('style');
     updateCounts();
     void detectAiService();
 

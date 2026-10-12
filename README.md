@@ -15,7 +15,7 @@ A portrait style workbench with:
 npm start
 ```
 
-Open <http://127.0.0.1:4174/?v=9>.
+Open <http://127.0.0.1:4174/?v=13>.
 
 ## Optional AI mode
 
@@ -37,3 +37,28 @@ export IMAGE_API_TIMEOUT_MS=150000
 ```
 
 Without a key, the complete interaction flow remains usable and generated prints are labeled “本地演示成片”.
+
+生成入口保留在 `1 / S1` 强度模式的旋钮按下动作中；页面不再显示独立 AI Pipeline 面板。
+
+## EasyInput hardware bridge
+
+Open the page in desktop Chrome or Edge, click **连接设备**, and select the EasyInput serial port. The page listens at `115200 8N1` and accepts JSON Lines or compact text events:
+
+```text
+{"type":"encoder","delta":1}
+{"type":"button","key":"S1","action":"down"}
+{"type":"button","key":"1","action":"down"}
+ENC+
+ENC_PRESS
+S8_DOWN
+```
+
+See `docs/homework/input-mapping.md` for the complete mode map and `docs/homework/hardware-protocol.md` for the firmware-side boundary. The mouse wheel is only a local fallback and cannot replace real EasyInput evidence.
+
+## Assignment materials
+
+- Input mapping: `docs/homework/input-mapping.png`
+- Custom plan screenshot: `docs/homework/custom-plan.png`
+- Issue record: `docs/homework/issue-record.md`
+- Recording script: `docs/homework/demo-script.md`
+- Submission checklist: `docs/homework/submission-checklist.md`
