@@ -1,6 +1,8 @@
 (() => {
   'use strict';
 
+  const APP_VERSION = 'v1.0.261013-1';
+
   const STYLES = [
     { id: 'yarn', name: '毛线旅行家', tagline: '把熟悉的人与物，织成掌心里的温柔。' },
     { id: 'blocks', name: '积木星球', tagline: '一块一块，搭出另一个宇宙。' },
@@ -23,8 +25,8 @@
     { id: 'works', name: '查看作品' }
   ];
 
-  const DEFAULT_PORTRAITS = Array.from({ length: 10 }, (_, index) => {
-    const number = String(index + 1).padStart(2, '0');
+  const DEFAULT_PORTRAITS = Array.from({ length: 14 }, (_, index) => {
+    const number = String(index).padStart(2, '0');
     return {
       url: `./assets/portraits/${number}.png`,
       name: `默认肖像 ${number}.png`
@@ -97,6 +99,7 @@
     worksSurface: document.getElementById('works-surface'),
     worksEmpty: document.querySelector('.works-empty'),
     workCount: document.getElementById('work-count'),
+    appVersion: document.getElementById('app-version'),
     worksLabel: document.getElementById('works-label'),
     uploadButton: document.getElementById('upload-button'),
     organizeButton: document.getElementById('organize-button'),
@@ -2103,6 +2106,7 @@
   }
 
   async function init() {
+    elements.appVersion.textContent = APP_VERSION;
     installInputs();
     installHardwareBridge();
     installStageDrag();
@@ -2131,7 +2135,7 @@
     });
     updateUi();
     requestAnimationFrame(frame);
-    showTap('已载入 10 张默认肖像，已保持整理状态');
+    showTap(`已载入 ${DEFAULT_PORTRAITS.length} 张默认肖像，已保持整理状态`);
   }
 
   void init();
