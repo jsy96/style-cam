@@ -1312,9 +1312,12 @@
         }
         break;
       case 'original':
-        setView(state.view === 'original' ? 'effect' : 'original');
+        // S5 is dedicated to the current source's original/effect pair. A
+        // compare view is treated as the effect side, so S5 always lands on
+        // the effect first rather than jumping directly to the original.
+        setView(state.view === 'effect' ? 'original' : 'effect');
         setMode('source');
-        showTap(state.view === 'original' ? '旋钮轮换各张效果图' : '旋钮轮换各张原始图');
+        showTap(state.view === 'effect' ? '旋钮轮换各张原始图' : '旋钮轮换各张效果图');
         break;
       case 'style':
         setCreativeDisplay(false);
