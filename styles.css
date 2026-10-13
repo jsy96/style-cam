@@ -70,17 +70,38 @@ img { user-select: none; }
 .brand > div:last-child { display: grid; gap: 1px; }
 .brand strong { font-size: 17px; letter-spacing: .04em; }
 .brand small { color: var(--muted); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; }
-.brand-mark {
-  width: 32px; height: 32px; border-radius: 11px;
-  display: grid; grid-template-columns: repeat(3,1fr); gap: 2px;
-  padding: 5px;
-  background: #0d0e12;
-  border: 1px solid var(--line);
-  box-shadow: inset 0 2px 7px rgba(0,0,0,.8);
+.brand-logo {
+  display: block;
+  height: 40px;
+  width: auto;
+  padding: 3px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.52);
+  background: #fff;
+  box-shadow: 0 0 20px rgba(255,255,255,.13), 0 9px 22px rgba(0,0,0,.28);
+  transition: transform .18s ease, box-shadow .18s ease;
 }
-.brand-mark span { border-radius: 2px; background: linear-gradient(145deg, #d8b28d, #8f7cc8); }
-.brand-mark span:nth-child(2) { background: linear-gradient(145deg, #79d1a0, #3f7863); }
-.brand-mark span:nth-child(6), .brand-mark span:nth-child(8) { background: #454750; }
+.brand-logo:hover {
+  transform: translateY(-1px) scale(1.015);
+  box-shadow: 0 0 27px rgba(255,255,255,.20), 0 11px 26px rgba(0,0,0,.32);
+}
+
+#corner-logo {
+  position: fixed;
+  right: 18px;
+  bottom: 16px;
+  z-index: 24;
+  display: block;
+  height: 34px;
+  width: auto;
+  padding: 3px 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(255,255,255,.48);
+  background: #fff;
+  box-shadow: 0 0 20px rgba(255,255,255,.12), 0 9px 22px rgba(0,0,0,.30);
+  pointer-events: none;
+  user-select: none;
+}
 
 .status-group { display: flex; align-items: center; gap: 7px; }
 .chip {
@@ -439,6 +460,9 @@ dialog::backdrop { background: rgba(4,4,7,.76); backdrop-filter: blur(8px); }
 }
 
 @media (max-width: 1320px) {
+  .brand { gap: 9px; }
+  .brand-logo { height: 36px; padding: 3px 7px; }
+  #corner-logo { height: 30px; right: 15px; bottom: 13px; }
   .middle-layout { grid-template-columns: minmax(0,1fr) 264px; }
   .control-panel { padding: 11px; }
   .hardware-module { padding: 5px; }
@@ -449,6 +473,8 @@ dialog::backdrop { background: rgba(4,4,7,.76); backdrop-filter: blur(8px); }
   .dial { width: 46px; height: 46px; }
 }
 @media (max-height: 850px) {
+  .brand-logo { height: 34px; }
+  #corner-logo { height: 29px; }
   .app-shell { padding: 10px; }
   .topbar { min-height: 50px; }
   .brand strong { font-size: 15px; }
