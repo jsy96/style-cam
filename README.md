@@ -68,12 +68,4 @@ ENC_PRESS
 S8_DOWN
 ```
 
-See `docs/homework/input-mapping.md` for the complete mode map and `docs/homework/hardware-protocol.md` for the firmware-side boundary. The mouse wheel is only a local fallback and cannot replace real EasyInput evidence.
-
-## Assignment materials
-
-- Input mapping: `docs/homework/input-mapping.png`
-- Custom plan screenshot: `docs/homework/custom-plan.png`
-- Issue record: `docs/homework/issue-record.md`
-- Recording script: `docs/homework/demo-script.md`
-- Submission checklist: `docs/homework/submission-checklist.md`
+The mouse wheel is only a local fallback and cannot replace real EasyInput evidence.
