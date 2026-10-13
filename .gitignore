@@ -15,3 +15,6 @@ dist/
 # Local environment secrets
 .env
 .env.*
+
+# Vercel local project state
+.vercel/

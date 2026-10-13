@@ -40,6 +40,21 @@ Without a key, the complete interaction flow remains usable and generated prints
 
 生成入口保留在 `1 / S1` 强度模式的旋钮按下动作中；页面不再显示独立 AI Pipeline 面板。
 
+## Deploy to Vercel
+
+1. Open [vercel.com/new](https://vercel.com/new) and import `jsy96/style-cam`.
+2. Vercel should detect **Other** as the framework. Keep the build command empty; static files and the `api/` functions are picked up automatically.
+3. Optional AI environment variables:
+   - `OPENAI_API_KEY`
+   - `IMAGE_API_MODEL` (default `gpt-image-1`)
+   - `IMAGE_API_QUALITY`
+   - `IMAGE_API_INPUT_FIDELITY`
+   - `IMAGE_API_EDIT_URL`
+   - `IMAGE_API_TIMEOUT_MS`
+4. Deploy, then open `https://<your-project>.vercel.app/api/health` to verify the service.
+
+Without `OPENAI_API_KEY`, the Vercel deployment remains fully usable in local-demo mode. Real image generation depends on the external API finishing within Vercel's function timeout and request-size limits; the local interaction workbench is not affected.
+
 ## EasyInput hardware bridge
 
 Open the page in desktop Chrome or Edge, click **连接设备**, and select the EasyInput serial port. The page listens at `115200 8N1` and accepts JSON Lines or compact text events:
